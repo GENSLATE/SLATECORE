@@ -62,9 +62,12 @@ const CREDIT_TRAILER = /^(?:co-authored-by|signed-off-by|reviewed-by|authored-by
 /** A trailer whose key itself names an agent, e.g. `Claude-Session:` or `Cursor-Agent-Id:`. */
 const AGENT_KEY_TRAILER = new RegExp(`^(?:[a-z0-9]+-)*(?:${NAMES})(?:-[a-z0-9]+)*\\s*:`, 'i');
 
-/** Footers such as `Generated with [Claude Code]`, `Made with Cursor`, `Created by Devin`. */
+/**
+ * Footers such as `Generated with [Claude Code]`, `Made with Cursor`, `Created by Devin`, and the
+ * hyphenated trailer forms `Made-with: Cursor` and `Generated-by: Claude`.
+ */
 const FOOTER = new RegExp(
-  `^\\W*(?:generated|made|created|written|authored|assisted|built|powered|coauthored|co-authored)\\s+(?:with|by|using)\\b.*(?<![a-z0-9])(?:${NAMES})(?![a-z0-9])`,
+  `^\\W*(?:generated|made|created|written|authored|assisted|built|powered|coauthored|co-authored)[\\s-]+(?:with|by|using)\\b.*(?<![a-z0-9])(?:${NAMES})(?![a-z0-9])`,
   'i',
 );
 
@@ -84,8 +87,21 @@ function lineReason(line: string): string | undefined {
   return undefined;
 }
 
-/** Message lines git keeps: comments (`# ...`) are stripped by git and ignored here too. */
-function messageLines(text: string): string[] {
+/** The line `git commit -v` puts before the staged diff; everything after it is not the message. */
+const SCISSORS = /^# -{10,} >8 -{10,}/;
+
+/** Splits message lines at the scissors line: the message and the untouched rest (the diff). */
+function splitAtScissors(lines: readonly string[]): {
+  readonly message: string[];
+  readonly rest: string[];
+} {
+  const index = lines.findIndex((line) => SCISSORS.test(line));
+  return index === -1
+    ? { message: [...lines], rest: [] }
+    : { message: lines.slice(0, index), rest: lines.slice(index) };
+}
+
+function splitLines(text: string): string[] {
   return text.replaceAll('\r\n', '\n').split('\n');
 }
 
@@ -96,7 +112,8 @@ function isComment(line: string): boolean {
 /** Findings for a commit message or PR body. Plain mentions of the `.claude/` tooling pass. */
 export function checkText(where: string, text: string): AttributionFinding[] {
   const reasons = new Set<string>();
-  for (const line of messageLines(text)) {
+  // Comments (`# ...`) are stripped by git, and nothing after the scissors line is the message.
+  for (const line of splitAtScissors(splitLines(text)).message) {
     if (isComment(line)) continue;
     const reason = lineReason(line);
     if (reason !== undefined) reasons.add(reason);
@@ -106,16 +123,17 @@ export function checkText(where: string, text: string): AttributionFinding[] {
 
 /**
  * Removes every line `checkText` rejects (plus the blank lines they leave at the end), keeping
- * everything else byte for byte. Returns the message unchanged when it is already clean.
+ * everything else, including a `git commit -v` diff below the scissors line, byte for byte.
+ * Returns the message unchanged when it is already clean.
  */
 export function stripAgentCredit(text: string): string {
-  const crlf = text.includes('\r\n');
-  const lines = messageLines(text);
-  const kept = lines.filter((line) => isComment(line) || lineReason(line) === undefined);
-  if (kept.length === lines.length) return text;
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const { message, rest } = splitAtScissors(splitLines(text));
+  const kept = message.filter((line) => isComment(line) || lineReason(line) === undefined);
+  if (kept.length === message.length) return text;
   while (kept.length > 0 && kept[kept.length - 1]?.trim() === '') kept.pop();
-  const joined = kept.join(crlf ? '\r\n' : '\n');
-  return joined === '' ? '' : `${joined}${crlf ? '\r\n' : '\n'}`;
+  const head = kept.length === 0 ? '' : `${kept.join(eol)}${eol}`;
+  return rest.length === 0 ? head : `${head}${rest.join(eol)}`;
 }
 
 const AGENT_EMAIL =

@@ -56,6 +56,53 @@ describe('commit message trailers and footers', () => {
     });
   }
 
+  for (const name of AGENT_NAMES) {
+    test(`rejects_hyphenated_footer_trailers_naming_${name}`, () => {
+      for (const key of ['Made-with', 'Generated-by', 'Generated-with', 'Created-by']) {
+        expect(reasons(`fix: x\n\n${key}: ${name}`)).toHaveLength(1);
+      }
+    });
+  }
+
+  test('rejects_the_cursor_and_claude_hyphenated_forms_verbatim', () => {
+    expect(reasons('fix: x\n\nMade-with: Cursor')).toHaveLength(1);
+    expect(reasons('fix: x\n\nGenerated-by: Claude')).toHaveLength(1);
+    expect(reasons('fix: x\n\nGenerated-with: Claude Code')).toHaveLength(1);
+  });
+
+  test('git_commit_verbose_diff_below_the_scissors_line_is_not_scanned', () => {
+    const verbose = [
+      'fix: x',
+      '',
+      'Body.',
+      '# Please enter the commit message for your changes.',
+      '# ------------------------ >8 ------------------------',
+      '# Do not modify or remove the line above.',
+      'diff --git a/docs/a.md b/docs/a.md',
+      '+Generated with Claude in docs',
+      '+Co-Authored-By: Claude <noreply@anthropic.com>',
+      '',
+    ].join('\n');
+    expect(checkText('m', verbose)).toEqual([]);
+    expect(stripAgentCredit(verbose)).toBe(verbose);
+  });
+
+  test('credit_above_the_scissors_line_is_still_rejected_and_the_diff_survives_fix', () => {
+    const scissors = '# ------------------------ >8 ------------------------';
+    const verbose = [
+      'fix: x',
+      '',
+      'Made-with: Cursor',
+      scissors,
+      '+Generated with Claude',
+      '',
+    ].join('\n');
+    expect(checkText('m', verbose)).toHaveLength(1);
+    expect(stripAgentCredit(verbose)).toBe(
+      ['fix: x', scissors, '+Generated with Claude', ''].join('\n'),
+    );
+  });
+
   test('rejects_agent_session_links', () => {
     for (const link of [
       'https://claude.ai/code/session_01abc',
