@@ -57,13 +57,7 @@ export function resolveHex(theme: ThemeDefinition, key: TextPairKey): HexColor {
 export function shadowToCss(layers: readonly ShadowLayer[]): string {
   return layers
     .map((l) =>
-      [
-        `${l.x}px`,
-        `${l.y}px`,
-        `${l.blur}px`,
-        `${l.spread}px`,
-        colorToCss(l.color),
-      ]
+      [`${l.x}px`, `${l.y}px`, `${l.blur}px`, `${l.spread}px`, colorToCss(l.color)]
         .filter(Boolean)
         .join(' '),
     )

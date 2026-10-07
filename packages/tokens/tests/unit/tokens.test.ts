@@ -11,9 +11,9 @@ import { checkContrast } from '../../scripts/emit/data.emitter';
 import { emitTailwindThemeCss } from '../../scripts/emit/tailwind.emitter';
 import {
   CHROME_COLOR_KEYS,
+  type ColorValue,
   CURSOR_KEYS,
   CURSORS,
-  type ColorValue,
   contrastRatio,
   cursorCss,
   cursorDataUri,

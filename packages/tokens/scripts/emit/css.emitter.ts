@@ -50,8 +50,7 @@ export function emitScalesCss(): string {
   for (const [k, v] of entries(SPACE)) decls.push([`--gs-space-${k.replace('.', '_')}`, px(v)]);
   for (const [k, v] of entries(Z_INDEX)) decls.push([`--gs-z-${k}`, String(v)]);
   for (const [k, v] of entries(MOTION.duration)) decls.push([`--gs-duration-${k}`, `${v}ms`]);
-  for (const [k, v] of entries(MOTION.easing))
-    decls.push([`--gs-ease-${k}`, easingToCss(v)]);
+  for (const [k, v] of entries(MOTION.easing)) decls.push([`--gs-ease-${k}`, easingToCss(v)]);
   decls.push(
     ['--gs-motion-distance', px(MOTION.distance)],
     ['--gs-motion-scale-from', String(MOTION.scaleFrom)],

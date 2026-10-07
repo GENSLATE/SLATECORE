@@ -64,7 +64,14 @@
 
     "//#biome": {
       "description": "Biome lint + format check for the whole repo.",
-      "inputs": ["$TURBO_DEFAULT$", "!**/*.rs", "!**/*.md", "!bun.lock", "!Cargo.lock", "!release/**"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.rs",
+        "!**/*.md",
+        "!bun.lock",
+        "!Cargo.lock",
+        "!release/**"
+      ]
     },
     "//#biome:fix": {
       "description": "Biome --write.",
@@ -81,7 +88,18 @@
 
     "//#rust:fmt": {
       "description": "cargo fmt --all --check.",
-      "inputs": ["crates/**", "programs/**/src-tauri/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rustfmt.toml", ".config/cargo/**", "!**/target/**", "!**/.turbo/**", "!**/gen/**"]
+      "inputs": [
+        "crates/**",
+        "programs/**/src-tauri/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        "rustfmt.toml",
+        ".config/cargo/**",
+        "!**/target/**",
+        "!**/.turbo/**",
+        "!**/gen/**"
+      ]
     },
     "//#rust:fmt:fix": {
       "description": "cargo fmt --all (writes).",
@@ -89,15 +107,44 @@
     },
     "//#rust:lint": {
       "description": "cargo clippy --workspace --all-targets --locked -- -D warnings.",
-      "inputs": ["crates/**", "programs/**/src-tauri/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "clippy.toml", ".config/cargo/**", "!**/target/**", "!**/.turbo/**", "!**/gen/**"]
+      "inputs": [
+        "crates/**",
+        "programs/**/src-tauri/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        "clippy.toml",
+        ".config/cargo/**",
+        "!**/target/**",
+        "!**/.turbo/**",
+        "!**/gen/**"
+      ]
     },
     "//#rust:test": {
       "description": "cargo test --workspace --locked.",
-      "inputs": ["crates/**", "programs/**/src-tauri/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".config/cargo/**", "!**/target/**", "!**/.turbo/**", "!**/gen/**"]
+      "inputs": [
+        "crates/**",
+        "programs/**/src-tauri/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        ".config/cargo/**",
+        "!**/target/**",
+        "!**/.turbo/**",
+        "!**/gen/**"
+      ]
     },
     "//#rust:machete": {
       "description": "cargo machete: unused crate dependencies.",
-      "inputs": ["crates/**", "programs/**/src-tauri/**", "Cargo.toml", "Cargo.lock", "!**/target/**", "!**/.turbo/**", "!**/gen/**"]
+      "inputs": [
+        "crates/**",
+        "programs/**/src-tauri/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "!**/target/**",
+        "!**/.turbo/**",
+        "!**/gen/**"
+      ]
     },
     "//#rust:deny": {
       "description": "cargo deny check. Never cached: the advisory database changes daily.",
