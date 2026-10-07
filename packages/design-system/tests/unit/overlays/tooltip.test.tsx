@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Tooltip, TooltipProvider } from '../../../src/components/overlays/tooltip';
 
@@ -29,12 +29,14 @@ describe('Tooltip', () => {
     expect(screen.queryByText('Split editor')).toBeNull();
   });
 
-  test('opens when controlled', () => {
+  test('opens when controlled', async () => {
     render(
       <Tooltip content="Pinned" open>
         <button type="button">Pin</button>
       </Tooltip>,
     );
+    // The positioner computes its placement asynchronously after mount: flush it inside act.
+    await act(async () => {});
     expect(screen.getByText('Pinned')).toBeInTheDocument();
   });
 });

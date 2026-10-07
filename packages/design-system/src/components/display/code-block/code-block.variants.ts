@@ -2,7 +2,7 @@ import { tv } from '../../../utils/cn.util';
 
 export const codeBlockVariants = tv({
   slots: {
-    root: 'group/code relative inset-ring inset-ring-border-subtle m-0 flex min-w-0 flex-col overflow-hidden rounded-card bg-surface-sunken',
+    root: 'group/code relative m-0 flex min-w-0 flex-col overflow-hidden rounded-card border border-border-subtle bg-surface-sunken',
     header: 'hairline-b flex h-8 shrink-0 items-center gap-2 pr-1 pl-3',
     title: 'truncate-flex flex-1 text-fg-secondary text-sm',
     language: 'font-mono text-2xs text-fg-muted uppercase tracking-wide',

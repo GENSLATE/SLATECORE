@@ -11,13 +11,13 @@ export const switchLabelVariants = tv({
   defaultVariants: { labelPosition: 'start' },
 });
 
-/** The track: neutral when off, accent when on. */
+/** The track: a neutral bordered track when off, solid accent when on. */
 export const switchTrackVariants = tv({
   base: [
-    'focus-ring relative inline-flex shrink-0 items-center rounded-full p-0.5',
-    'bg-track transition-[background-color] duration-base ease-standard',
-    'hover:bg-control-pressed',
-    'data-checked:bg-accent data-checked:shadow-none data-checked:hover:bg-accent-hover',
+    'focus-ring relative inline-flex shrink-0 items-center rounded-full border border-border p-px',
+    'bg-track transition-[background-color,border-color] duration-base ease-standard',
+    'hover:border-border-strong active:bg-control-pressed',
+    'data-checked:border-transparent data-checked:bg-accent data-checked:active:bg-accent-active data-checked:hover:bg-accent-hover',
     'data-disabled:pointer-events-none data-disabled:opacity-40',
     'window-inactive:data-checked:bg-fg-disabled',
   ],
@@ -30,7 +30,7 @@ export const switchTrackVariants = tv({
   defaultVariants: { size: 'md' },
 });
 
-/** The round thumb, sliding with the spring curve (transform only). */
+/** The round thumb, sliding on the emphasized curve (transform only). */
 export const switchThumbVariants = tv({
   base: [
     'block rounded-full bg-thumb will-change-transform',

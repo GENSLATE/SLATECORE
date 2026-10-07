@@ -6,6 +6,7 @@ export * from './checkbox';
 export * from './checkbox-group';
 export * from './field';
 export * from './number-field';
+export * from './password-field';
 export * from './radio-group';
 export * from './search-field';
 export * from './select';

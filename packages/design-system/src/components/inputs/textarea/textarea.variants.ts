@@ -2,7 +2,8 @@ import { tv } from '../../../utils/cn.util';
 
 export const textareaVariants = tv({
   base: [
-    'scrollbar-thin block w-full outline-none placeholder:text-fg-muted',
+    // No outline reset: the field recipe's focus-ring-within draws the Frost edge on the textarea.
+    'scrollbar-thin block w-full placeholder:text-fg-muted',
     'data-disabled:cursor-not-allowed',
   ],
   variants: {

@@ -94,7 +94,8 @@ describe('WindowContextMenu', () => {
     render(<Window />);
     await openOn(screen.getByRole('banner'));
     const theme = screen.getByRole('menuitem', { name: 'Theme' });
-    theme.focus();
+    // Focusing moves Base UI's highlight (a state update): flush it inside act.
+    await act(async () => theme.focus());
     await user.keyboard('{ArrowRight}');
     const light = await screen.findByRole('menuitemradio', {
       name: 'Snow Storm',

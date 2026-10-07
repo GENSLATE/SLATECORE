@@ -10,7 +10,7 @@ export const dialogVariants = tv({
     viewport: 'fixed inset-0 z-dialog flex items-center justify-center overflow-y-auto p-6',
     popup: [
       'relative flex max-h-[calc(100dvh-3rem)] w-full flex-col p-5 outline-none',
-      'origin-top rounded-dialog bg-surface-dialog text-fg shadow-popover',
+      'origin-top rounded-dialog border border-border bg-surface-dialog text-fg shadow-popover',
       'transition-[opacity,scale,translate] duration-base ease-emphasized',
       'data-starting-style:-translate-y-2 data-starting-style:scale-96 data-starting-style:opacity-0',
       'data-ending-style:scale-98 data-ending-style:opacity-0 data-ending-style:duration-fast data-ending-style:ease-standard',
@@ -38,7 +38,7 @@ export const dialogVariants = tv({
 /** Footer push buttons (kept local so overlays don't depend on the actions package). */
 export const dialogButtonVariants = tv({
   base: [
-    'focus-ring inline-flex h-control-md min-w-20 cursor-interactive items-center justify-center gap-1.5 rounded-control px-3',
+    'focus-ring inline-flex h-control-md min-w-20 cursor-interactive items-center justify-center gap-1.5 rounded-control border border-transparent px-3',
     'select-none whitespace-nowrap font-medium text-base',
     'transition-colors duration-fast ease-standard',
     'disabled:pointer-events-none disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50',
@@ -46,7 +46,7 @@ export const dialogButtonVariants = tv({
   variants: {
     tone: {
       default:
-        'bg-control text-fg ring-[0.5px] ring-border hover:bg-control-hover active:bg-control-pressed',
+        'border-border bg-control text-fg hover:border-border-strong hover:bg-control-hover active:bg-control-pressed',
       primary: 'bg-accent text-on-accent hover:bg-accent-hover active:bg-accent-active',
       danger: 'bg-danger text-on-danger hover:bg-danger-hover active:bg-danger',
       plain: '',

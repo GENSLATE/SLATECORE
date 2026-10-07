@@ -69,4 +69,17 @@ describe('Tabs', () => {
     expect(container.querySelector('[data-slot="tabs"]')).toHaveAttribute('data-variant', 'pill');
     expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('data-disabled');
   });
+
+  test('pill_indicator_slides_between_tabs', () => {
+    const { container } = render(<Example variant="pill" />);
+    const indicator = container.querySelector('[data-slot="tabs-indicator"]');
+    expect(indicator).not.toBeNull();
+    const classes = indicator?.getAttribute('class') ?? '';
+    // Positioned from Base UI's active-tab geometry and animated along it with motion tokens.
+    expect(classes).toContain('translate-x-(--active-tab-left)');
+    expect(classes).toContain('w-(--active-tab-width)');
+    expect(classes).toMatch(/transition-\[[^\]]*translate[^\]]*width/);
+    expect(classes).toContain('ease-emphasized');
+    expect(classes).toContain('motion-reduce:transition-none');
+  });
 });

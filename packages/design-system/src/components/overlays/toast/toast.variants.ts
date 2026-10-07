@@ -9,7 +9,7 @@ const stack = [
   'absolute right-0 bottom-0 z-[calc(1000-var(--toast-index))] h-(--height) w-full origin-bottom',
   '[transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)-(var(--toast-index)*var(--peek))-(var(--shrink)*var(--height))))_scale(var(--scale))]',
   'data-expanded:h-(--toast-height) data-expanded:[transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]',
-  'data-starting-style:[transform:translateY(150%)] data-limited:opacity-0 data-ending-style:opacity-0',
+  'data-starting-style:[transform:translateY(150%)_scale(var(--gs-motion-scale-from))] data-starting-style:opacity-0 data-limited:opacity-0 data-ending-style:opacity-0',
   '[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(150%)]',
   'data-ending-style:data-[swipe-direction=down]:[transform:translateY(calc(var(--toast-swipe-movement-y)+150%))]',
   'data-ending-style:data-[swipe-direction=right]:[transform:translateX(calc(var(--toast-swipe-movement-x)+150%))_translateY(var(--offset-y))]',
@@ -21,7 +21,10 @@ export const toastVariants = tv({
   slots: {
     viewport:
       'fixed right-3 bottom-[calc(var(--gs-size-statusbar)+0.75rem)] z-toast w-90 max-w-[calc(100vw-1.5rem)] outline-none',
-    root: [...stack, 'select-none rounded-popover bg-surface-popover text-fg shadow-popover'],
+    root: [
+      ...stack,
+      'select-none rounded-popover border border-border bg-surface-popover text-fg shadow-popover',
+    ],
     content: [
       'flex items-start gap-2.5 overflow-hidden p-3 pr-2',
       'transition-opacity duration-base ease-standard data-behind:opacity-0 data-expanded:opacity-100',
@@ -32,7 +35,7 @@ export const toastVariants = tv({
     description: 'text-fg-secondary text-sm',
     action: [
       'focus-ring mt-1.5 w-fit rounded-sm font-medium text-accent-fg text-sm',
-      'hover:underline hover:underline-offset-2',
+      'hover:underline hover:underline-offset-2 active:text-accent-active',
     ],
     close: [
       'focus-ring -mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-sm text-fg-muted',

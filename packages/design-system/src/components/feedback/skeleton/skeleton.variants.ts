@@ -1,5 +1,6 @@
 import { tv } from '../../../utils/cn.util';
 
+/** Loading placeholders: flat fill blocks that breathe softly while content loads. */
 export const skeletonVariants = tv({
   base: ['relative block shrink-0 overflow-hidden bg-fill-pressed'],
   variants: {
@@ -9,10 +10,7 @@ export const skeletonVariants = tv({
       circle: 'rounded-full',
     },
     animated: {
-      true: [
-        'after:absolute after:inset-0 after:animate-shimmer after:content-[""] motion-reduce:after:hidden',
-        'after:bg-[linear-gradient(90deg,transparent,var(--gs-color-fill-hover),transparent)]',
-      ],
+      true: 'animate-pulse-soft motion-reduce:animate-none',
     },
   },
   defaultVariants: { shape: 'rect', animated: true },

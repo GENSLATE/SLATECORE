@@ -1,13 +1,18 @@
 import { tv } from '../../../utils/cn.util';
 
-/** Trigger: the field chrome as a button, value left, chevrons right. */
+/**
+ * Trigger: the field chrome as a button, value left, chevrons right. Keyboard focus gets the
+ * field's crisp Frost edge (`focus-ring-within` matches `:focus-visible`); an open list keeps
+ * the border Frost.
+ */
 export const selectTriggerVariants = tv({
   base: [
-    'group/select select-none justify-between text-left outline-none',
-    'focus-visible:border-accent focus-visible:shadow-[0_0_0_3px_var(--gs-color-focus-halo)]',
+    'group/select cursor-interactive select-none justify-between text-left',
+    'focus-visible:border-focus',
+    'not-data-disabled:active:bg-fill-pressed',
     'data-popup-open:border-accent',
     'data-invalid:border-danger-border',
-    'data-disabled:cursor-not-allowed data-disabled:opacity-50',
+    'data-disabled:cursor-not-allowed',
   ],
 });
 

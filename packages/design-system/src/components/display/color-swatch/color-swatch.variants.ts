@@ -5,9 +5,10 @@ export const colorSwatchVariants = tv({
     root: 'flex min-w-0',
     chip: [
       'relative shrink-0 overflow-hidden',
-      // The hairline sits above the fill so colours equal to the canvas still read as a chip.
-      'after:pointer-events-none after:absolute after:inset-0 after:inset-ring after:inset-ring-border after:rounded-[inherit] after:content-[""]',
-      // A checkerboard shows through translucent colours.
+      // A 1px border sits above the fill so colours equal to the canvas still read as a chip.
+      'after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-border after:content-[""]',
+      // A transparency checkerboard shows through translucent colours: the one allowed pattern,
+      // exempted by name in tests/unit/styles/styles.test.ts.
       'bg-[conic-gradient(var(--gs-color-fill-pressed)_25%,transparent_0_50%,var(--gs-color-fill-pressed)_0_75%,transparent_0)] bg-size-[8px_8px]',
     ],
     fill: 'absolute inset-0',

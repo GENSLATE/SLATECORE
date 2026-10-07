@@ -8,12 +8,16 @@ export const listItem = tv({
   base: [
     'group/item relative flex h-menu-item w-full cursor-interactive select-none items-center gap-2 rounded-menu-item px-2 text-base text-fg outline-none',
     'data-highlighted:bg-accent data-highlighted:text-on-accent',
+    'data-highlighted:active:bg-accent-active',
     'data-disabled:pointer-events-none data-disabled:text-fg-disabled',
   ],
   variants: {
     tone: {
       default: '',
-      danger: 'text-danger-fg data-highlighted:bg-danger data-highlighted:text-on-danger',
+      danger: [
+        'text-danger-fg data-highlighted:bg-danger data-highlighted:text-on-danger',
+        'data-highlighted:active:bg-danger-hover',
+      ],
     },
     inset: {
       true: 'pl-7',

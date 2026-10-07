@@ -2,7 +2,7 @@ import { tv } from '../../../utils/cn.util';
 
 export const badgeVariants = tv({
   slots: {
-    root: 'inline-flex w-fit shrink-0 items-center gap-1 whitespace-nowrap align-middle font-medium tabular-nums',
+    root: 'inline-flex w-fit shrink-0 items-center gap-1 whitespace-nowrap border border-transparent align-middle font-medium tabular-nums',
     dot: 'size-1.5 shrink-0 rounded-full bg-current',
   },
   variants: {
@@ -17,7 +17,7 @@ export const badgeVariants = tv({
     variant: {
       subtle: {},
       solid: {},
-      outline: { root: 'inset-ring bg-transparent' },
+      outline: { root: 'bg-transparent' },
     },
     size: {
       sm: { root: 'h-4 rounded-xs px-1 text-2xs' },
@@ -87,32 +87,32 @@ export const badgeVariants = tv({
     {
       variant: 'outline',
       tone: 'neutral',
-      class: { root: 'inset-ring-border text-fg-secondary' },
+      class: { root: 'border-border text-fg-secondary' },
     },
     {
       variant: 'outline',
       tone: 'accent',
-      class: { root: 'inset-ring-accent-border text-accent-fg' },
+      class: { root: 'border-accent-border text-accent-fg' },
     },
     {
       variant: 'outline',
       tone: 'success',
-      class: { root: 'inset-ring-success-border text-success-fg' },
+      class: { root: 'border-success-border text-success-fg' },
     },
     {
       variant: 'outline',
       tone: 'warning',
-      class: { root: 'inset-ring-warning-border text-warning-fg' },
+      class: { root: 'border-warning-border text-warning-fg' },
     },
     {
       variant: 'outline',
       tone: 'danger',
-      class: { root: 'inset-ring-danger-border text-danger-fg' },
+      class: { root: 'border-danger-border text-danger-fg' },
     },
     {
       variant: 'outline',
       tone: 'info',
-      class: { root: 'inset-ring-info-border text-info-fg' },
+      class: { root: 'border-info-border text-info-fg' },
     },
     { pill: true, size: 'sm', class: { root: 'min-w-4 justify-center px-1' } },
     {

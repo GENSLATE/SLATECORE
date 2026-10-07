@@ -1,14 +1,14 @@
 import { tv } from '../../../utils/cn.util';
 
 /**
- * 38px unified titlebar: traffic lights on the left, quiet chrome, a hairline below, dims when
+ * 38px unified titlebar: traffic lights on the left, quiet chrome, a 1px border below, dims when
  * the window is in the background.
  */
 export const titleBarVariants = tv({
   slots: {
     root: [
       'relative z-chrome grid h-titlebar shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center',
-      'chrome bg-titlebar-bg text-titlebar-fg shadow-[inset_0_-1px_0_0_var(--gs-titlebar-border)]',
+      'chrome border-titlebar-border border-b bg-titlebar-bg text-titlebar-fg',
       'transition-colors duration-fast ease-standard',
       'data-inactive:bg-titlebar-bg-inactive data-inactive:text-titlebar-fg-inactive',
     ],

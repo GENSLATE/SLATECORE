@@ -18,10 +18,3 @@ expect.extend(matchers as unknown as Parameters<typeof expect.extend>[0]);
 afterEach(() => {
   cleanup();
 });
-
-// Base UI schedules state updates from timers and observers outside any test act() scope; with the
-// flag on, React warns about each of them. Testing Library re-enables it around its own act() calls.
-const { beforeAll } = await import('bun:test');
-beforeAll(() => {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
-});

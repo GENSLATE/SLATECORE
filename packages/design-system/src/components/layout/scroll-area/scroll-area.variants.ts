@@ -16,9 +16,10 @@ export const scrollAreaVariants = tv({
       'flex-1 rounded-full bg-scrollbar-thumb transition-colors duration-fast ease-standard',
       'hover:bg-scrollbar-thumb-hover active:bg-scrollbar-thumb-active',
     ],
+    // Scrolled content slides under a flat 1px border-subtle line at the top edge.
     shadow: [
-      'pointer-events-none absolute inset-x-0 top-0 z-raised h-1.5 opacity-0 transition-opacity duration-fast ease-standard',
-      'shadow-[inset_0_6px_6px_-6px_var(--gs-color-scrim)] group-data-overflow-y-start/scroll:opacity-100',
+      'pointer-events-none absolute inset-x-0 top-0 z-raised h-px bg-border-subtle opacity-0 transition-opacity duration-fast ease-standard',
+      'group-data-overflow-y-start/scroll:opacity-100',
     ],
     corner: 'bg-transparent',
   },

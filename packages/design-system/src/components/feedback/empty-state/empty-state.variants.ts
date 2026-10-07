@@ -3,7 +3,7 @@ import { tv } from '../../../utils/cn.util';
 export const emptyStateVariants = tv({
   slots: {
     root: 'flex flex-col items-center justify-center text-center',
-    icon: 'flex items-center justify-center rounded-full bg-fill-hover text-fg-muted',
+    icon: 'flex items-center justify-center rounded-full border border-border-subtle bg-fill-hover text-fg-muted',
     title: 'font-semibold text-fg-strong',
     description: 'max-w-80 text-fg-muted',
     actions: 'flex flex-wrap items-center justify-center gap-2',

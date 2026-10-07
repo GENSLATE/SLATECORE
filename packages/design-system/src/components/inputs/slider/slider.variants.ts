@@ -11,9 +11,9 @@ export const sliderVariants = tv({
     track: 'relative h-1 w-full rounded-full bg-track',
     indicator: 'rounded-full bg-accent window-inactive:bg-fg-disabled',
     thumb: [
-      'size-4 rounded-full bg-thumb outline-2 outline-transparent outline-offset-2',
-      'ring-[0.5px] ring-border-strong',
-      'transition-[scale] duration-fast ease-emphasized active:scale-110 data-dragging:scale-110',
+      'size-4 rounded-full border border-border-strong bg-thumb outline-2 outline-transparent outline-offset-2',
+      'transition-[scale,border-color] duration-fast ease-emphasized',
+      'hover:border-accent active:scale-110 data-dragging:scale-110 data-dragging:border-accent',
       'has-focus-visible:outline-focus',
     ],
     ticks: 'pointer-events-none absolute inset-x-2 top-full mt-0.5 h-1',

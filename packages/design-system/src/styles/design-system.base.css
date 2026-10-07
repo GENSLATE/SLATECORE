@@ -1,6 +1,17 @@
 /* Base element styles: a native-feeling desktop document. */
 
 @layer base {
+  /* Design-system constants layered on the generated tokens (no colours here). */
+  :root {
+    /* One focus ring everywhere: a crisp 2px Frost outline, 2px off the control. */
+    --gs-focus-ring-width: 2px;
+    --gs-focus-ring-offset: 2px;
+    /* Delay between rows of a staggered entrance (`motion-row-in` with `--stagger: <index>`). */
+    --gs-stagger-step: 32ms;
+    /* Rows past this index enter together, so long lists never feel slow. */
+    --gs-stagger-max: 12;
+  }
+
   html {
     height: 100%;
     background-color: var(--gs-color-canvas);

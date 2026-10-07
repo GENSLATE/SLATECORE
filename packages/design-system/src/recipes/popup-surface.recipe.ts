@@ -1,14 +1,15 @@
 import { tv } from '../utils/cn.util';
 
 /**
- * Floating surfaces (menus, popovers, selects, tooltips' bigger siblings): the macOS recipe —
- * hairline ring + soft layered shadow + optional glass — entering with opacity, scale .96 and a
- * 4px rise from the Base UI `--transform-origin`, exiting faster.
+ * Floating surfaces (menus, popovers, selects, the command palette): one solid Nord step above
+ * the window, a 1px border and the soft `popover` shadow — the only shadow in the system. They
+ * fade and scale in from .96 with a 4px rise from the Base UI `--transform-origin`, and leave
+ * faster than they arrive.
  */
 export const popupSurface = tv({
   base: [
     'relative z-popover origin-(--transform-origin) text-fg outline-none',
-    'bg-surface-popover shadow-popover',
+    'border border-border bg-surface-popover shadow-popover',
     'transition-[opacity,scale,translate] duration-base ease-emphasized',
     'data-starting-style:scale-96 data-starting-style:opacity-0',
     'data-ending-style:scale-96 data-ending-style:opacity-0 data-ending-style:duration-fast data-ending-style:ease-standard',
@@ -19,10 +20,15 @@ export const popupSurface = tv({
     size: {
       menu: 'min-w-44 rounded-popover p-1',
       popover: 'rounded-popover p-3',
-      dialog: 'rounded-dialog shadow-popover',
+      dialog: 'rounded-dialog',
     },
+    /**
+     * Kept for API compatibility with the SlateSuite components. SLATECORE surfaces are always
+     * solid, so it changes nothing.
+     */
     glass: {
-      true: 'surface-glass',
+      true: '',
+      false: '',
     },
   },
   defaultVariants: { size: 'menu', glass: false },

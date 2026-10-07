@@ -4,8 +4,8 @@ export const kbdVariants = tv({
   slots: {
     root: 'inline-flex shrink-0 items-center whitespace-nowrap font-sans text-fg-muted',
     key: [
-      'inline-flex items-center justify-center rounded-xs bg-control font-medium font-sans text-fg-secondary',
-      'inset-ring inset-ring-border-subtle shadow-[inset_0_-1px_0_0_var(--gs-color-border)]',
+      // A flat keycap: one control step with a 1px border.
+      'inline-flex items-center justify-center rounded-xs border border-border bg-control font-medium font-sans text-fg-secondary',
     ],
     separator: 'text-fg-disabled',
   },

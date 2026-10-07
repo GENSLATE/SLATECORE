@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Card, CardBody, CardHeader } from '../../../src/components/layout/card';
 import { Panel, PanelBody, PanelHeader } from '../../../src/components/layout/panel';
@@ -108,12 +108,14 @@ describe('Separator', () => {
 });
 
 describe('ScrollArea', () => {
-  test('labelled viewport becomes a focusable region', () => {
+  test('labelled viewport becomes a focusable region', async () => {
     render(
       <ScrollArea aria-label="Log">
         <p>Line</p>
       </ScrollArea>,
     );
+    // Base UI measures the viewport after mount (a state update): let it settle inside act.
+    await act(async () => {});
     const region = screen.getByRole('region', { name: 'Log' });
     expect(region).toHaveAttribute('tabindex', '0');
     expect(region).toHaveTextContent('Line');

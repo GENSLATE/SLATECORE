@@ -1,18 +1,19 @@
 import { tv } from '../utils/cn.util';
 
 /**
- * Text-entry chrome shared by TextField, SearchField, Textarea, Select triggers and NumberField:
- * a flat field with a hairline border that turns Frost with a soft halo on focus.
+ * Text-entry chrome shared by TextField, PasswordField, SearchField, Textarea, Select triggers
+ * and NumberField: a flat field one colour step below its surface, framed by a 1px border that
+ * strengthens on hover and becomes a crisp 2px Frost edge on focus.
  */
 export const field = tv({
   base: [
     'flex w-full min-w-0 items-center gap-1.5 rounded-control border border-border bg-field text-fg',
-    'transition-[border-color,box-shadow,background-color] duration-fast ease-standard',
-    'hover:border-border-strong',
-    'focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--gs-color-focus-halo)]',
+    'transition-[border-color,outline-color,background-color] duration-fast ease-standard',
+    'not-data-disabled:hover:border-border-strong',
+    'focus-ring-within',
     'has-[[aria-invalid=true]]:border-danger-border data-invalid:border-danger-border',
-    'data-invalid:focus-within:shadow-[0_0_0_3px_var(--gs-color-danger-subtle)]',
-    'data-disabled:cursor-not-allowed data-disabled:opacity-50 data-disabled:hover:border-border',
+    'not-data-disabled:data-invalid:hover:border-danger',
+    'data-disabled:cursor-not-allowed data-disabled:bg-surface-sunken data-disabled:text-fg-disabled',
   ],
   variants: {
     size: {
@@ -31,6 +32,6 @@ export const field = tv({
 export const fieldInput = tv({
   base: [
     'h-full min-w-0 flex-1 bg-transparent text-inherit outline-none',
-    'placeholder:text-fg-muted disabled:cursor-not-allowed',
+    'placeholder:text-fg-muted disabled:cursor-not-allowed disabled:placeholder:text-fg-disabled',
   ],
 });

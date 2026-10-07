@@ -19,7 +19,7 @@ export const bannerVariants = tv({
       danger: { root: 'bg-danger-subtle', icon: 'text-danger-fg' },
     },
     variant: {
-      inline: { root: 'inset-ring rounded-card px-3 py-2.5' },
+      inline: { root: 'rounded-card border px-3 py-2.5' },
       bar: { root: 'hairline-b px-3 py-1.5' },
     },
   },
@@ -27,27 +27,27 @@ export const bannerVariants = tv({
     {
       variant: 'inline',
       tone: 'neutral',
-      class: { root: 'inset-ring-border-subtle' },
+      class: { root: 'border-border-subtle' },
     },
     {
       variant: 'inline',
       tone: 'info',
-      class: { root: 'inset-ring-info-border' },
+      class: { root: 'border-info-border' },
     },
     {
       variant: 'inline',
       tone: 'success',
-      class: { root: 'inset-ring-success-border' },
+      class: { root: 'border-success-border' },
     },
     {
       variant: 'inline',
       tone: 'warning',
-      class: { root: 'inset-ring-warning-border' },
+      class: { root: 'border-warning-border' },
     },
     {
       variant: 'inline',
       tone: 'danger',
-      class: { root: 'inset-ring-danger-border' },
+      class: { root: 'border-danger-border' },
     },
   ],
   defaultVariants: { tone: 'info', variant: 'inline' },

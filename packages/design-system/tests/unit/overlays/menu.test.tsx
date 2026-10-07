@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   Menu,
@@ -124,7 +124,8 @@ describe('Menu', () => {
     render(<Example />);
     await user.click(screen.getByRole('button', { name: 'File' }));
     const share = await screen.findByRole('menuitem', { name: 'Share' });
-    share.focus();
+    // Focusing moves Base UI's highlight (a state update): flush it inside act.
+    await act(async () => share.focus());
     await user.keyboard('{ArrowRight}');
     expect(await screen.findByRole('menuitem', { name: 'Copy Link' })).toBeInTheDocument();
     expect(share).toHaveAttribute('aria-expanded', 'true');

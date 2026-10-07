@@ -15,7 +15,7 @@ export const sidebarVariants = tv({
     sectionTrigger: [
       'group/trigger flex h-6 min-w-0 flex-1 items-center gap-1 rounded-sm px-2 text-left',
       'font-semibold text-2xs text-fg-muted uppercase tracking-wider',
-      'focus-ring-inset transition-colors duration-fast ease-standard hover:text-fg-secondary',
+      'focus-ring-inset transition-colors duration-fast ease-standard hover:text-fg-secondary active:text-fg',
     ],
     sectionChevron: [
       'text-fg-muted transition-[opacity,rotate] duration-fast ease-standard',

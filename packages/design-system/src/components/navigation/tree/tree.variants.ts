@@ -7,7 +7,7 @@ export const treeVariants = tv({
     row: [
       'relative flex h-row-sm cursor-interactive items-center gap-1.5 pr-2 text-fg',
       'outline-2 outline-transparent -outline-offset-2',
-      'hover:bg-fill-hover',
+      'hover:bg-fill-hover active:bg-fill-pressed',
       'data-selected:bg-selection-inactive data-selected:text-fg-strong',
       'group-focus-within/tree:data-selected:bg-selection',
       'data-disabled:pointer-events-none data-disabled:text-fg-disabled',

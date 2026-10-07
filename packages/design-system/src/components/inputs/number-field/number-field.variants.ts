@@ -13,6 +13,7 @@ export const numberFieldStepVariants = tv({
     'flex min-h-0 flex-1 items-center justify-center text-fg-muted outline-none',
     'transition-colors duration-fast ease-standard',
     'hover:bg-fill-hover hover:text-fg active:bg-fill-pressed',
+    'focus-visible:bg-fill-hover focus-visible:text-fg',
     'data-disabled:pointer-events-none data-disabled:text-fg-disabled',
     '[&+&]:border-border-subtle [&+&]:border-t',
   ],

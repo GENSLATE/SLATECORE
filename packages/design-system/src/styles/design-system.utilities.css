@@ -1,9 +1,14 @@
-/* Custom utilities shared by every component. */
+/*
+ * Custom utilities shared by every component.
+ *
+ * SLATECORE is flat: surfaces step through the Nord palette and meet at 1px borders. Focus is a
+ * crisp Frost outline (never a blurred halo), so it reads the same on every surface and theme.
+ */
 
 /* Keyboard focus: a 2px Frost ring outside the element, only for :focus-visible. */
 @utility focus-ring {
-  outline: 2px solid transparent;
-  outline-offset: 2px;
+  outline: var(--gs-focus-ring-width) solid transparent;
+  outline-offset: var(--gs-focus-ring-offset);
 
   &:focus-visible {
     outline-color: var(--gs-color-focus);
@@ -12,48 +17,43 @@
 
 /* Focus ring drawn inside the element — rows, tabs and cells that sit edge to edge. */
 @utility focus-ring-inset {
-  outline: 2px solid transparent;
-  outline-offset: -2px;
+  outline: var(--gs-focus-ring-width) solid transparent;
+  outline-offset: calc(var(--gs-focus-ring-width) * -1);
 
   &:focus-visible {
     outline-color: var(--gs-color-focus);
   }
 }
 
-/* A focus ring for containers whose inner input is focused (text fields). */
+/*
+ * Bordered controls whose focus lives on (or inside) them — text fields, select triggers. The
+ * 1px border turns Frost and a 1px outline sits flush against it: one crisp 2px Frost edge.
+ */
 @utility focus-ring-within {
-  &:focus-within {
-    border-color: var(--gs-color-accent);
-    box-shadow: 0 0 0 3px var(--gs-color-focus-halo);
+  outline: 1px solid transparent;
+  outline-offset: 0;
+
+  &:is(:focus-visible, :has(:focus-visible)) {
+    border-color: var(--gs-color-focus);
+    outline-color: var(--gs-color-focus);
   }
 }
 
-/* macOS-style translucent material for floating surfaces. */
-@utility surface-glass {
-  background-color: color-mix(in srgb, var(--gs-color-surface-popover) 82%, transparent);
-  backdrop-filter: blur(24px) saturate(1.6);
-
-  @media (prefers-reduced-transparency: reduce) {
-    background-color: var(--gs-color-surface-popover);
-    backdrop-filter: none;
-  }
-}
-
-/* Hairlines: 1px separators that never add layout height. */
+/* Hairlines: 1px border-subtle separators on one edge (the box keeps its outer size). */
 @utility hairline-t {
-  box-shadow: inset 0 1px 0 0 var(--gs-color-border-subtle);
+  border-top: 1px solid var(--gs-color-border-subtle);
 }
 
 @utility hairline-b {
-  box-shadow: inset 0 -1px 0 0 var(--gs-color-border-subtle);
+  border-bottom: 1px solid var(--gs-color-border-subtle);
 }
 
 @utility hairline-l {
-  box-shadow: inset 1px 0 0 0 var(--gs-color-border-subtle);
+  border-left: 1px solid var(--gs-color-border-subtle);
 }
 
 @utility hairline-r {
-  box-shadow: inset -1px 0 0 0 var(--gs-color-border-subtle);
+  border-right: 1px solid var(--gs-color-border-subtle);
 }
 
 /* VS Code-style thin scrollbars that appear on hover. */
