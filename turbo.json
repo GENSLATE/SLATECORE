@@ -1,0 +1,107 @@
+{
+  "$schema": "./node_modules/turbo/schema.json",
+  "futureFlags": {
+    "globalConfiguration": true
+  },
+  "agentGuidance": false,
+  "global": {
+    "ui": "stream",
+    "envMode": "loose",
+    "noUpdateNotifier": true,
+    "cacheDir": ".turbo/cache",
+    "cacheMaxAge": "14d",
+    "cacheMaxSize": "5GB",
+    "inputs": ["bunfig.toml"],
+    "env": ["RUSTFLAGS", "CARGO_BUILD_TARGET", "CARGO_PROFILE_*"]
+  },
+  "tasks": {
+    "transit": {
+      "description": "Graph-only node: makes a package's checks re-run when any workspace dependency changes, without serialising them.",
+      "dependsOn": ["^transit"],
+      "inputs": ["$TURBO_DEFAULT$", "!installDir/**", "!other/**", "!src-tauri/**"]
+    },
+    "typecheck": {
+      "description": "tsc --noEmit in each TypeScript package.",
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "!installDir/**", "!other/**", "!src-tauri/**"]
+    },
+    "test": {
+      "description": "bun test in each package (Rust tests run via //#rust:test).",
+      "dependsOn": ["transit"],
+      "outputs": ["coverage/**"],
+      "inputs": ["$TURBO_DEFAULT$", "!installDir/**", "!other/**", "!src-tauri/**"]
+    },
+    "check": {
+      "description": "Package-level drift and sanity checks (for example generated token files)."
+    },
+    "generate": {
+      "description": "Regenerate checked-in generated files. Never run in CI; CI runs check.",
+      "outputs": ["src/generated/**"]
+    },
+    "build": {
+      "description": "Production build of a web app or Tauri app.",
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs": ["$TURBO_DEFAULT$", "!installDir/**", "!other/**", "!src-tauri/gen/**"]
+    },
+    "dev": {
+      "description": "Long-running dev session (tauri dev, or vite for web apps).",
+      "cache": false,
+      "persistent": true
+    },
+    "dev:web": {
+      "description": "Vite dev server only (browser mock backend).",
+      "cache": false,
+      "persistent": true
+    },
+
+    "@genslate/tokens#generate": {
+      "outputs": ["src/generated/**", "$TURBO_ROOT$/crates/design-tokens/src/generated/**"]
+    },
+    "@genslate/tokens#check": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/crates/design-tokens/src/generated/**"]
+    },
+
+    "//#biome": {
+      "description": "Biome lint + format check for the whole repo.",
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.rs", "!**/*.md", "!bun.lock", "!Cargo.lock", "!release/**"]
+    },
+    "//#biome:fix": {
+      "description": "Biome --write.",
+      "cache": false
+    },
+    "//#spell": {
+      "description": "cspell over all tracked text files.",
+      "inputs": ["$TURBO_DEFAULT$", "!bun.lock", "!Cargo.lock", "!release/**"]
+    },
+    "//#knip": {
+      "description": "Unused files, exports and dependencies.",
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.rs", "!**/*.md", "!Cargo.lock", "!release/**"]
+    },
+
+    "//#rust:fmt": {
+      "description": "cargo fmt --all --check.",
+      "inputs": ["crates/**", "programs/**/src-tauri/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rustfmt.toml", ".config/cargo/**", "!**/target/**", "!**/.turbo/**", "!**/gen/**"]
+    },
+    "//#rust:fmt:fix": {
+      "description": "cargo fmt --all (writes).",
+      "cache": false
+    },
+    "//#rust:lint": {
+      "description": "cargo clippy --workspace --all-targets --locked -- -D warnings.",
+      "inputs": ["crates/**", "programs/**/src-tauri/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "clippy.toml", ".config/cargo/**", "!**/target/**", "!**/.turbo/**", "!**/gen/**"]
+    },
+    "//#rust:test": {
+      "description": "cargo test --workspace --locked.",
+      "inputs": ["crates/**", "programs/**/src-tauri/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".config/cargo/**", "!**/target/**", "!**/.turbo/**", "!**/gen/**"]
+    },
+    "//#rust:machete": {
+      "description": "cargo machete: unused crate dependencies.",
+      "inputs": ["crates/**", "programs/**/src-tauri/**", "Cargo.toml", "Cargo.lock", "!**/target/**", "!**/.turbo/**", "!**/gen/**"]
+    },
+    "//#rust:deny": {
+      "description": "cargo deny check. Never cached: the advisory database changes daily.",
+      "cache": false
+    }
+  }
+}

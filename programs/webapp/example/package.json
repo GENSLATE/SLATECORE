@@ -1,29 +1,22 @@
 {
-  "name": "@genslate/launcher",
+  "name": "@genslate/example",
   "version": "0.1.0",
   "private": true,
-  "description": "SLATECORE LAUNCHER by GENSLATE: the portable app launcher (Tauri 2 shell with a React UI).",
+  "description": "SLATECORE Design Kit: every design-system component in both Nord themes, on a local bun dev server.",
   "author": "GENSLATE",
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev",
-    "dev:web": "bun --bun vite",
-    "build": "tauri build --no-bundle",
-    "build:web": "bun --bun vite build",
+    "dev": "bun --bun vite",
+    "build": "bun --bun vite build",
     "preview": "bun --bun vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test --preload ./tests/setup/dom.preload.ts",
-    "tauri": "tauri"
+    "test": "bun test --preload ./tests/setup/dom.preload.ts"
   },
   "dependencies": {
     "@genslate/design-system": "workspace:*",
     "@genslate/tauri-bridge": "workspace:*",
-    "@tauri-apps/api": "catalog:",
-    "@tauri-apps/plugin-global-shortcut": "catalog:",
-    "@tauri-apps/plugin-log": "catalog:",
-    "@tauri-apps/plugin-opener": "catalog:",
-    "@tauri-apps/plugin-os": "catalog:",
+    "@genslate/tokens": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
@@ -31,7 +24,6 @@
     "@genslate/config-typescript": "workspace:*",
     "@genslate/config-vite": "workspace:*",
     "@happy-dom/global-registrator": "catalog:",
-    "@tauri-apps/cli": "catalog:",
     "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",

@@ -1,0 +1,29 @@
+# changie file format (https://changie.dev). The changie CLI is optional: fragments in
+# `.changes/unreleased/*.yaml` are plain YAML written by the `/change` command, and
+# `bun run version` folds them into CHANGELOG.md.
+changesDir: .changes
+unreleasedDir: unreleased
+headerPath: templates/header.md.tpl
+changelogPath: CHANGELOG.md
+versionExt: md
+versionFormat: '## {{.Version}} - {{.Time.Format "2006-01-02"}}'
+kindFormat: '### {{.Kind}}'
+changeFormat: '* {{.Body}}'
+kinds:
+  - label: Added
+    auto: minor
+  - label: Changed
+    auto: major
+  - label: Deprecated
+    auto: minor
+  - label: Removed
+    auto: major
+  - label: Fixed
+    auto: patch
+  - label: Security
+    auto: patch
+newlines:
+  afterChangelogHeader: 1
+  beforeChangelogVersion: 1
+  endOfVersion: 1
+envPrefix: CHANGIE_

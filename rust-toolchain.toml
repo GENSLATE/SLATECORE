@@ -1,0 +1,6 @@
+# Exact channel: turbo caches Rust tasks without hashing the compiler, so never use `stable`.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
+targets = ["x86_64-pc-windows-msvc"]

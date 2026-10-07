@@ -1,0 +1,32 @@
+{
+  "name": "@genslate/config-vite",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Vite 8 presets for SLATECORE apps: Tauri dev server and plain web (React Compiler, Tailwind CSS v4).",
+  "author": "GENSLATE",
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@babel/core": "catalog:",
+    "@rolldown/plugin-babel": "catalog:",
+    "@tailwindcss/vite": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "babel-plugin-react-compiler": "catalog:"
+  },
+  "peerDependencies": {
+    "vite": "^8.3.3"
+  },
+  "devDependencies": {
+    "@genslate/config-typescript": "workspace:*",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}
