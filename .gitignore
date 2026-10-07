@@ -1,0 +1,8 @@
+# SUPERPOWERS FILES
+
+docs/
+.superpowers/
+
+# GENSLATE INTERNAL FILES
+
+.genslate/
