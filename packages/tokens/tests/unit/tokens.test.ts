@@ -62,7 +62,8 @@ function rootOf(ref: string): string {
 }
 
 const POLAR_NIGHT = new Set(['nord-0', 'nord-1', 'nord-2', 'nord-3']);
-const SNOW_STORM = new Set(['nord-4', 'nord-5', 'nord-6']);
+/** Light surfaces and fills: Snow Storm itself plus the sanctioned brightening of nord6. Exact refs, no other derivative. */
+const SNOW_STORM_REFS = new Set(['nord-4', 'nord-5', 'nord-6', 'snow-bright']);
 const SURFACE_KEYS = [
   'canvas',
   'surface',
@@ -74,9 +75,36 @@ const SURFACE_KEYS = [
   'surface-sunken',
   'field',
 ] as const;
+/** Opaque window-chrome backgrounds: tone surfaces in both themes. */
+const CHROME_SURFACE_KEYS = [
+  'titlebar-bg',
+  'titlebar-bg-inactive',
+  'statusbar-bg',
+  'tab-strip-bg',
+  'tab-active-bg',
+] as const;
+/** Control and command-center fills: light-theme surfaces in the spec sense (dark ones are translucent overlays). */
+const LIGHT_FILL_KEYS = [
+  'control',
+  'control-hover',
+  'control-pressed',
+  'command-center-bg',
+  'command-center-bg-hover',
+] as const;
+/** The only light-theme keys allowed to be pure white: foregrounds on saturated fills, plus the thumb knob. */
+const LIGHT_WHITE_ALLOWED = new Set([
+  'on-media',
+  'on-accent',
+  'on-danger',
+  'on-info',
+  'statusbar-accent-fg',
+  'terminal-cursor-text',
+  'thumb',
+]);
 
-function surfaceRef(theme: ThemeDefinition, key: (typeof SURFACE_KEYS)[number]): string {
-  const value: ColorValue = theme.color[key];
+function refOf(theme: ThemeDefinition, key: string): string {
+  const value = ({ ...theme.color, ...theme.component } as Record<string, ColorValue>)[key];
+  if (value === undefined) throw new Error(`${theme.id} has no colour "${key}"`);
   if (value === 'transparent') throw new Error(`${theme.id}/${key} is transparent`);
   return value.ref;
 }
@@ -108,12 +136,25 @@ describe('Nord palette', () => {
 
 describe('themes', () => {
   test('dark_theme_surfaces_come_from_polar_night_and_light_from_snow_storm', () => {
-    for (const key of SURFACE_KEYS) {
-      const dark = rootOf(surfaceRef(THEMES['polar-night'], key));
-      const light = rootOf(surfaceRef(THEMES['snow-storm'], key));
-      expect(POLAR_NIGHT.has(dark), `dark/${key} -> ${dark}`).toBe(true);
-      expect(SNOW_STORM.has(light), `light/${key} -> ${light}`).toBe(true);
+    for (const key of [...SURFACE_KEYS, ...CHROME_SURFACE_KEYS]) {
+      const dark = refOf(THEMES['polar-night'], key);
+      const light = refOf(THEMES['snow-storm'], key);
+      expect(POLAR_NIGHT.has(rootOf(dark)), `dark/${key} -> ${dark}`).toBe(true);
+      expect(SNOW_STORM_REFS.has(light), `light/${key} -> ${light}`).toBe(true);
     }
+  });
+
+  test('light_fills_come_from_snow_storm_and_pure_white_is_an_explicit_exception', () => {
+    for (const key of LIGHT_FILL_KEYS) {
+      const light = refOf(THEMES['snow-storm'], key);
+      expect(SNOW_STORM_REFS.has(light), `light/${key} -> ${light}`).toBe(true);
+    }
+    // Any other key that resolves to pure white (e.g. a new fill) fails here.
+    const light = THEMES['snow-storm'];
+    const whites = Object.keys({ ...light.color, ...light.component }).filter(
+      (key) => refOf(light, key) === 'white',
+    );
+    expect(whites.filter((key) => !LIGHT_WHITE_ALLOWED.has(key))).toEqual([]);
   });
 
   test('semantic_colors_reference_primitives_only', () => {

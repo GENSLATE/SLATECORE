@@ -37,9 +37,9 @@
   --gs-color-fill-hover: rgb(46 52 64 / 0.05);
   --gs-color-fill-pressed: rgb(46 52 64 / 0.09);
   --gs-color-fill-selected-inactive: rgb(46 52 64 / 0.07);
-  --gs-color-control: white;
-  --gs-color-control-hover: var(--gs-snow-bright);
-  --gs-color-control-pressed: var(--gs-nord-5);
+  --gs-color-control: var(--gs-nord-6);
+  --gs-color-control-hover: var(--gs-nord-5);
+  --gs-color-control-pressed: var(--gs-nord-4);
   --gs-color-track: rgb(46 52 64 / 0.12);
   --gs-color-thumb: white;
   --gs-color-danger: var(--gs-nord-11-d08);
@@ -71,8 +71,8 @@
   --gs-titlebar-fg: var(--gs-nord-2);
   --gs-titlebar-fg-inactive: var(--gs-nord-3-m6-45);
   --gs-titlebar-border: rgb(46 52 64 / 0.1);
-  --gs-command-center-bg: rgb(255 255 255 / 0.6);
-  --gs-command-center-bg-hover: white;
+  --gs-command-center-bg: rgb(236 239 244 / 0.6);
+  --gs-command-center-bg-hover: var(--gs-nord-6);
   --gs-command-center-border: rgb(46 52 64 / 0.1);
   --gs-statusbar-bg: var(--gs-nord-6);
   --gs-statusbar-fg: var(--gs-nord-3);
@@ -194,9 +194,9 @@
     --gs-color-fill-hover: rgb(46 52 64 / 0.05);
     --gs-color-fill-pressed: rgb(46 52 64 / 0.09);
     --gs-color-fill-selected-inactive: rgb(46 52 64 / 0.07);
-    --gs-color-control: white;
-    --gs-color-control-hover: var(--gs-snow-bright);
-    --gs-color-control-pressed: var(--gs-nord-5);
+    --gs-color-control: var(--gs-nord-6);
+    --gs-color-control-hover: var(--gs-nord-5);
+    --gs-color-control-pressed: var(--gs-nord-4);
     --gs-color-track: rgb(46 52 64 / 0.12);
     --gs-color-thumb: white;
     --gs-color-danger: var(--gs-nord-11-d08);
@@ -228,8 +228,8 @@
     --gs-titlebar-fg: var(--gs-nord-2);
     --gs-titlebar-fg-inactive: var(--gs-nord-3-m6-45);
     --gs-titlebar-border: rgb(46 52 64 / 0.1);
-    --gs-command-center-bg: rgb(255 255 255 / 0.6);
-    --gs-command-center-bg-hover: white;
+    --gs-command-center-bg: rgb(236 239 244 / 0.6);
+    --gs-command-center-bg-hover: var(--gs-nord-6);
     --gs-command-center-border: rgb(46 52 64 / 0.1);
     --gs-statusbar-bg: var(--gs-nord-6);
     --gs-statusbar-fg: var(--gs-nord-3);

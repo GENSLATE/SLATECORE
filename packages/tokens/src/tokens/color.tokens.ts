@@ -108,6 +108,7 @@ export const DERIVED: Readonly<Record<DerivedColorKey, DerivedColor>> = {
   ),
   'nord-4-m0-35': derive('nord-4', over('nord-0', 35), 'Disabled text on dark.'),
   'nord-3-m6-45': derive('nord-3', over('nord-6', 45), 'Disabled text on light.'),
+  // Sanctioned brightening of nord6: the only derivative allowed as a Snow Storm surface.
   'snow-bright': derive(
     'nord-6',
     lighten(0.025),
