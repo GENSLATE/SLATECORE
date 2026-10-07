@@ -1,0 +1,65 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/commands/**/*.ts",
+        "scripts/lib/agents-check.ts",
+        "scripts/lib/generated-paths.ts",
+        "scripts/no-trace/**/*.ts",
+        ".claude/hooks/*.ts",
+        ".claude/statusline/*.ts",
+        ".config/*.ts",
+        "scripts/tests/**/*.test.ts"
+      ],
+      "project": ["scripts/**/*.ts", ".claude/**/*.ts", ".config/*.ts", "!scripts/templates/**"],
+      "ignoreDependencies": [
+        "@commitlint/cli",
+        "@commitlint/config-conventional",
+        "@tauri-apps/cli",
+        "fflate",
+        "turbo"
+      ]
+    },
+    "packages/tokens": {
+      "entry": ["tests/**/*.test.ts"],
+      "project": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/design-system": {
+      "entry": ["scripts/*.ts", "tests/**/*.{ts,tsx}", "tests/setup/*.ts"],
+      "project": ["src/**/*.{ts,tsx,css}", "scripts/**/*.ts", "tests/**/*.{ts,tsx}"]
+    },
+    "packages/tauri-bridge": {
+      "entry": ["tests/**/*.test.ts", "tests/setup/*.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/config-vite": {
+      "entry": [],
+      "project": ["src/**/*.ts"]
+    },
+    "packages/config-typescript": {
+      "entry": [],
+      "project": []
+    },
+    "programs/desktop/*": {
+      "entry": ["tests/**/*.{ts,tsx}", "tests/setup/*.ts"],
+      "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}"]
+    },
+    "programs/desktop/launcher": {
+      "entry": ["src/tray-menu.main.tsx", "tests/**/*.{ts,tsx}", "tests/setup/*.ts"],
+      "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        "@tauri-apps/api",
+        "@tauri-apps/plugin-global-shortcut",
+        "@tauri-apps/plugin-log",
+        "@tauri-apps/plugin-opener",
+        "@tauri-apps/plugin-os"
+      ]
+    },
+    "programs/webapp/*": {
+      "entry": ["tests/**/*.{ts,tsx}", "tests/setup/*.ts"],
+      "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}"]
+    }
+  }
+}

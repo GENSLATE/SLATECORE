@@ -1,0 +1,38 @@
+//! Main window creation: webview profile inside the install folder and the Polar Night canvas.
+
+use std::path::PathBuf;
+
+use tauri::window::Color;
+use tauri::{AppHandle, Manager, Runtime, WebviewWindowBuilder};
+
+use crate::AppError;
+
+/// Label of the window declared in `tauri.conf.json`.
+pub const MAIN: &str = "main";
+
+/// Polar Night (nord0): the first frame and resizing never flash white.
+const CANVAS: Color = Color(0x2e, 0x34, 0x40, 0xff);
+
+/// Creates the main window from its `tauri.conf.json` entry (declared with `create: false`)
+/// with the webview profile in `webview_dir`, so the webview never writes to the OS user
+/// profile (`WebView2` would default to `%LOCALAPPDATA%\<identifier>`).
+pub fn create_main_window<R: Runtime>(
+    app: &AppHandle<R>,
+    webview_dir: PathBuf,
+) -> Result<(), AppError> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == MAIN)
+        .ok_or(AppError::MissingConfig("app.windows[main]"))?;
+    WebviewWindowBuilder::from_config(app, config)?
+        .data_directory(webview_dir)
+        .build()?;
+    let window = app
+        .get_webview_window(MAIN)
+        .ok_or(AppError::MissingWindow(MAIN))?;
+    window.set_background_color(Some(CANVAS))?;
+    Ok(())
+}

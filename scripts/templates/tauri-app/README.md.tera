@@ -1,0 +1,17 @@
+# {{ title }}
+
+{{ description }}. A SLATECORE app by GENSLATE (Tauri 2 shell, React 19 UI, Rust core in
+`crates/{{ name }}-core`).
+
+```text
+bun run dev {{ name }}          # native window with Vite hot reload
+bun run dev {{ name }} --web    # the UI alone in a browser: http://localhost:{{ port }}
+bun run build                   # production build of every app
+```
+
+- Window title and product name: `{{ title }}` (`src-tauri/tauri.conf.json`).
+- Bundle identifier: `{{ identifier }}`.
+- Vite port {{ port }} (HMR {{ port + 1 }}) must match `build.devUrl` in `src-tauri/tauri.conf.json`.
+- Replace `src/assets/app-icon.svg`, then run `bun run tauri icon src/assets/app-icon.svg` here to
+  regenerate `src-tauri/icons`.
+- Tests: `bun test --preload ./tests/setup/dom.preload.ts` (happy-dom + Testing Library).

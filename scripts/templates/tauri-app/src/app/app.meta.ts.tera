@@ -1,0 +1,20 @@
+import pkg from '../../package.json';
+import appIcon from '../assets/app-icon.svg';
+
+/** Who this app is: shown in the titlebar, the home view and the status bar. */
+export const APP = {
+  /** Kebab-case id: package, crate, config and log folders. */
+  id: '{{ name }}',
+  /** Short name. */
+  name: '{{ display }}',
+  /** `productName` and window title in src-tauri/tauri.conf.json. */
+  productName: '{{ title }}',
+  /** The suite this app belongs to. */
+  suite: 'SLATECORE',
+  /** The developer, shown as "by GENSLATE". */
+  developer: 'GENSLATE',
+  /** Bundled version; the running binary reports its own through `get_app_info`. */
+  version: pkg.version,
+  /** The app icon (`src/assets/app-icon.svg`). */
+  icon: appIcon,
+} as const;
