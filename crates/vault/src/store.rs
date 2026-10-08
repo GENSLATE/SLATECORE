@@ -130,6 +130,9 @@ pub(crate) struct HeaderRead {
     /// Slots to rewrite from the winner: missing, damaged or older. A slot that could not be
     /// read or is of a newer format is never marked.
     pub(crate) stale: [bool; 2],
+    /// `true` when a slot is present but could not be read: it may hold a newer generation, so
+    /// nothing that rewrites both slots (a KDF upgrade) may run.
+    pub(crate) unreadable: bool,
 }
 
 /// Parses both header slots and picks the highest valid generation (research/vault.md 4.2).
@@ -193,6 +196,7 @@ pub(crate) fn read_headers(layout: &Layout) -> HeaderRead {
         exists,
         winner,
         stale,
+        unreadable: states.contains(&SlotState::Unreadable),
     }
 }
 
@@ -257,8 +261,12 @@ pub(crate) struct IndexRead {
 }
 
 /// Decrypts both index slots, uses the highest valid generation and rewrites a missing or
-/// damaged slot from it (never one that could not be read). Neither slot valid:
-/// [`VaultError::Tampered`]`("index")`.
+/// damaged slot from it. Neither slot valid: [`VaultError::Tampered`]`("index")`.
+///
+/// A slot that is present but cannot be read (a sharing violation, a folder in its place) fails
+/// the load with [`VaultError::Io`], which is worth retrying: it may hold the newest generation,
+/// and unlocking without it would let garbage collection delete that generation's blobs and the
+/// next commit overwrite it.
 pub(crate) fn load_index(
     layout: &Layout,
     key: &SecretKey,
@@ -270,7 +278,12 @@ pub(crate) fn load_index(
     for (i, path) in layout.indexes.iter().enumerate() {
         states[i] = match read_slot(path, max) {
             SlotFile::Missing => SlotState::Missing,
-            SlotFile::Unreadable(_) => SlotState::Unreadable,
+            SlotFile::Unreadable(source) => {
+                return Err(VaultError::Io {
+                    context: "reading the vault index",
+                    source,
+                });
+            }
             SlotFile::Bytes(bytes) => match crypto::open_index(key, vault_id, &bytes) {
                 Ok((generation, index)) => {
                     slots[i] = Some((generation, index, bytes));

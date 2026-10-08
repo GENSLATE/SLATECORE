@@ -444,12 +444,16 @@ impl Vault {
 
     /// Unlocks with `password`; then recovers from any crash (heals slots, removes orphaned
     /// blobs), upgrades a weak KDF, and encrypts plain files found in the vault folder.
+    ///
+    /// An index slot that exists but cannot be read right now fails with [`VaultError::Io`]
+    /// (retry once the file is free); the vault stays locked and nothing is changed.
     pub fn unlock(&self, password: &SecretString) -> Result<(), VaultError> {
         let unlock_gate = gate(&self.unlock_gate);
         let store::HeaderRead {
             exists,
             winner,
             stale,
+            unreadable,
         } = {
             let mut inner = self.inner()?;
             if inner.unlocked.is_some() {
@@ -468,7 +472,12 @@ impl Vault {
         let loaded = store::load_index(&self.layout, &key, &header.vault_id)?;
         store::heal_headers(&self.layout, &header, stale);
         store::collect_garbage(&self.layout, &loaded.index);
-        let header = self.upgrade_kdf(&normalized, header, &key);
+        // An unreadable header slot may hold a newer generation: rewriting both could roll it back.
+        let header = if unreadable {
+            header
+        } else {
+            self.upgrade_kdf(&normalized, header, &key)
+        };
         drop(normalized);
         let session = Session::new()?;
         {

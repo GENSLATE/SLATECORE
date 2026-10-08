@@ -8,7 +8,8 @@
 //! everything in one index commit: it lands completely or not at all. Foreign items (plain
 //! files dropped into the vault folder) are wiped only file by file, and only when the file on
 //! disk is still exactly what was encrypted and its blob decrypts back to it. A foreign folder
-//! that is left holding only links or other skipped entries is not imported again.
+//! that is left holding only links or other skipped entries is not imported again, and a
+//! foreign file whose content the vault already holds under its name is only wiped.
 
 // cspell:ignore gvpart
 
@@ -908,6 +909,14 @@ impl Vault {
             if meta.file_type().is_symlink() || !(meta.is_dir() || meta.is_file()) {
                 continue;
             }
+            if meta.is_file()
+                && let Some(hash) = self.copy_in_vault(&ctx, &root, &name, &item, &meta)
+            {
+                // Already in the vault (an original that could not be wiped last time, or the
+                // emptied leftover of an interrupted wipe): only the wipe is tried again.
+                session::wipe_original(&item, session::stat(&meta), meta.len(), &hash);
+                continue;
+            }
             let target = Target {
                 dest_dir: &root,
                 name: &name,
@@ -939,6 +948,39 @@ impl Vault {
             inner.foreign = remaining;
         }
         Ok(imported)
+    }
+
+    /// The content hash of the plain file `item` when `dir` already holds a file named `name`
+    /// with the same content (its blob decrypted and compared), or any file of that name when
+    /// `item` is empty. `None` on any doubt, so the item is imported as usual.
+    fn copy_in_vault(
+        &self,
+        ctx: &Ctx,
+        dir: &VaultPath,
+        name: &str,
+        item: &Path,
+        meta: &fs::Metadata,
+    ) -> Option<[u8; 32]> {
+        let existing = {
+            let mut inner = self.inner().ok()?;
+            let unlocked = self.current(&mut inner, ctx).ok()?;
+            let path = find_sibling(&unlocked.index, dir, name)?;
+            unlocked.index.entries.get(&path).cloned()?
+        };
+        let blob = existing.blob.filter(|_| existing.kind == EntryKind::File)?;
+        if meta.len() != 0 && meta.len() != existing.size {
+            return None;
+        }
+        let ours = File::open(item)
+            .and_then(|mut f| crypto::hash_reader(&mut f))
+            .ok()?;
+        if meta.len() == 0 {
+            return Some(ours);
+        }
+        let theirs = self
+            .read_blob(ctx, &blob, existing.size, &mut std::io::sink(), None)
+            .ok()?;
+        (theirs.hash == ours).then_some(ours)
     }
 
     /// Best-effort foreign-item ingestion after create and unlock (spec A3, decision D4).

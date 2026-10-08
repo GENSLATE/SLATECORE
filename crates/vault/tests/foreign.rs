@@ -234,3 +234,78 @@ fn an_empty_foreign_folder_merges_into_the_folder_of_that_name() -> TestResult {
     assert!(!fixture.root().join("Photos").exists());
     Ok(())
 }
+
+/// Both index slot generations.
+fn generations(fixture: &Fixture) -> Result<[u64; 2], Box<dyn std::error::Error>> {
+    Ok([
+        common::index_generation(&fixture.root().join("index.a.gvi"))?,
+        common::index_generation(&fixture.root().join("index.b.gvi"))?,
+    ])
+}
+
+#[test]
+fn a_foreign_file_that_cannot_be_wiped_is_not_imported_again() -> TestResult {
+    let fixture = Fixture::new()?;
+    fs::create_dir_all(fixture.root())?;
+    let dropped = fixture.root().join("notes.txt");
+    fs::write(&dropped, b"dropped in")?;
+    // A second name (Unix) and an open handle (Windows) keep the original from being wiped.
+    fs::hard_link(&dropped, fixture.scratch()?.join("second-name.txt"))?;
+    let held = fs::File::open(&dropped)?;
+
+    let vault = fixture.create()?;
+    assert_eq!(common::names(&vault, "")?, vec!["notes.txt".to_owned()]);
+    let before = (generations(&fixture)?, fixture.blobs()?);
+    for round in 1..=2 {
+        vault.lock(LockPolicy::SyncThenWipe)?;
+        vault.unlock(&pw(PASSWORD))?;
+        assert_eq!(
+            common::names(&vault, "")?,
+            vec!["notes.txt".to_owned()],
+            "round {round}"
+        );
+        assert_eq!(
+            (generations(&fixture)?, fixture.blobs()?),
+            before,
+            "round {round}"
+        );
+        assert_eq!(vault.status().foreign_items, 1, "round {round}");
+    }
+    drop(held);
+    assert_eq!(fs::read(&dropped)?, b"dropped in");
+    assert_eq!(fixture.export_bytes(&vault, "notes.txt")?, b"dropped in");
+    Ok(())
+}
+
+#[test]
+fn an_empty_leftover_of_a_vault_file_is_removed_not_imported() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    fixture.import_bytes(&vault, "", "notes.txt", b"in the vault")?;
+    let before = generations(&fixture)?;
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    fs::write(fixture.root().join("NOTES.txt"), b"")?;
+    vault.unlock(&pw(PASSWORD))?;
+    assert_eq!(common::names(&vault, "")?, vec!["notes.txt".to_owned()]);
+    assert_eq!(generations(&fixture)?, before);
+    assert!(!fixture.root().join("NOTES.txt").exists());
+    assert_eq!(vault.status().foreign_items, 0);
+    Ok(())
+}
+
+#[test]
+fn a_foreign_file_with_other_content_is_still_imported() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    fixture.import_bytes(&vault, "", "notes.txt", b"version 1")?;
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    fs::write(fixture.root().join("notes.txt"), b"version 2")?; // same size, other content
+    vault.unlock(&pw(PASSWORD))?;
+    let names = common::names(&vault, "")?;
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert_eq!(fixture.export_bytes(&vault, "notes.txt")?, b"version 1");
+    let copy = names.iter().find(|n| *n != "notes.txt").ok_or("no copy")?;
+    assert_eq!(fixture.export_bytes(&vault, copy)?, b"version 2");
+    assert!(!fixture.root().join("notes.txt").exists());
+    Ok(())
+}

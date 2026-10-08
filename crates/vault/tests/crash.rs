@@ -318,3 +318,67 @@ fn torn_create_leaves_a_vault_that_can_be_created_again() -> TestResult {
     assert!(other.root().join("vault.b.gvh").exists());
     Ok(())
 }
+
+#[test]
+fn an_unreadable_index_slot_fails_the_unlock_and_keeps_its_blobs() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    fixture.import_bytes(&vault, "", "a.txt", b"a")?; // generation 2 -> slot A
+    fixture.import_bytes(&vault, "", "b.txt", b"b")?; // generation 3 -> slot B
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    let index_b = fixture.root().join("index.b.gvi");
+    assert_eq!(common::index_generation(&index_b)?, 3);
+    let blobs = fixture.blobs()?;
+
+    // The newest slot cannot be read for now (a folder in its place, like a locked file).
+    let aside = fixture.scratch()?.join("index.b.gvi");
+    fs::rename(&index_b, &aside)?;
+    fs::create_dir(&index_b)?;
+    for _ in 0..2 {
+        let refused = vault.unlock(&pw(PASSWORD));
+        assert!(matches!(refused, Err(VaultError::Io { .. })), "{refused:?}");
+        assert_eq!(vault.status().state, VaultState::Locked);
+        assert_eq!(fixture.blobs()?, blobs, "no blob is collected");
+        assert!(index_b.is_dir(), "the slot is not overwritten");
+    }
+
+    fs::remove_dir(&index_b)?;
+    fs::rename(&aside, &index_b)?;
+    vault.unlock(&pw(PASSWORD))?;
+    assert_eq!(
+        common::names(&vault, "")?,
+        vec!["a.txt".to_owned(), "b.txt".to_owned()]
+    );
+    assert_eq!(fixture.export_bytes(&vault, "b.txt")?, b"b");
+    Ok(())
+}
+
+#[test]
+fn no_kdf_upgrade_while_a_header_slot_is_unreadable() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    drop(vault);
+    let header_a = fixture.root().join("vault.a.gvh");
+    let header_b = fixture.root().join("vault.b.gvh");
+    // Slot B may hold a newer generation that cannot be read right now.
+    fs::remove_file(&header_b)?;
+    fs::create_dir(&header_b)?;
+
+    let config = genslate_vault::VaultConfig {
+        kdf: genslate_vault::KdfParams {
+            m_cost_kib: 32_768,
+            t_cost: 2,
+            p_cost: 1,
+        },
+        ..fixture.config.clone()
+    };
+    let vault = genslate_vault::Vault::open(config)?.0;
+    vault.unlock(&pw(PASSWORD))?;
+    let a = HeaderSlot::decode(&fs::read(&header_a)?)?;
+    assert_eq!(a.generation, 1, "slot A is not rewritten");
+    assert_eq!(a.kdf, genslate_vault::KdfParams::MINIMUM);
+    assert!(vault.status().kdf_upgrade_pending);
+    assert!(header_b.is_dir());
+    Ok(())
+}

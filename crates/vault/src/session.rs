@@ -374,7 +374,8 @@ pub(crate) enum OriginalWipe {
 /// lock: a file renamed over the original is not touched, and a change of length or time after
 /// the hash is refused before anything is written.) The emptied file is
 /// then renamed to a random name next to it and deleted only if what was moved is still the
-/// emptied file; anything else that was moved is put back under its name.
+/// emptied file; a plain file that was moved instead is put back under its name by hard link,
+/// anything else is set aside under `<name>.restored-<hex>`.
 pub(crate) fn wipe_original(
     path: &Path,
     listed: Baseline,
@@ -439,7 +440,11 @@ fn open_original(
             let handle = still_the_same(open_no_follow(path, false).ok()?, &meta).ok()??;
             handle.set_permissions(writable(meta.permissions())).ok()?;
             drop(handle);
-            (open_exclusive(path).ok()?, Some(meta.permissions()))
+            let Ok(file) = open_exclusive(path) else {
+                restore_permissions(path, &meta); // open elsewhere, say
+                return None;
+            };
+            (file, Some(meta.permissions()))
         }
         Err(_) => return None,
     };
@@ -451,7 +456,22 @@ fn open_original(
             }
             None
         }
-        _ => None,
+        _ => {
+            if restore.is_some() {
+                restore_permissions(path, &meta);
+            }
+            None
+        }
+    }
+}
+
+/// Puts the read-only attribute back on the file `meta` describes, through a handle that does
+/// not follow a link (best effort; nothing is done if something else is at `path` now).
+fn restore_permissions(path: &Path, meta: &fs::Metadata) {
+    if let Ok(handle) = open_no_follow(path, false)
+        && let Ok(Some(handle)) = still_the_same(handle, meta)
+    {
+        let _ = handle.set_permissions(meta.permissions());
     }
 }
 
@@ -494,14 +514,20 @@ fn dispose(path: &Path, emptied: &fs::Metadata) -> OriginalWipe {
             OriginalWipe::Kept
         };
     }
-    // Something else had replaced the original (which is then already gone): put it back
-    // without replacing whatever may be at `path` now.
-    if fs::hard_link(&moved, path).is_ok() {
+    // Something else had replaced the original (which is then already gone). A plain file goes
+    // back under its name by hard link, which never replaces whatever may be at `path` now (and
+    // is never asked to follow a link). Anything else, or a file that cannot be linked back
+    // (FAT32, exFAT, the name taken again), is set aside as `<name>.restored-<hex>`.
+    let plain = fs::symlink_metadata(&moved).is_ok_and(|m| m.is_file());
+    if plain && fs::hard_link(&moved, path).is_ok() {
         let _ = fs::remove_file(&moved);
-    } else if fs::symlink_metadata(path).is_err() {
-        let _ = fs::rename(&moved, path);
+        return OriginalWipe::Wiped;
     }
-    OriginalWipe::Wiped
+    let mut aside = path.as_os_str().to_owned();
+    aside.push(".restored-");
+    aside.push(hex(&random));
+    let _ = fs::rename(&moved, PathBuf::from(aside));
+    OriginalWipe::Kept
 }
 
 /// `true` when `path` is a plain, empty, singly linked file (on Unix, the very file `emptied`
@@ -663,6 +689,45 @@ mod tests {
         let other = crypto::hash_reader(&mut &b"something else"[..])?;
         assert_eq!(wipe_original(&path, listed, 14, &other), OriginalWipe::Kept);
         assert_eq!(wipe_original(&path, listed, 13, &hash), OriginalWipe::Kept);
+        assert_eq!(fs::read(&path)?, b"plain original");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_swapped_in_after_the_hash_is_set_aside_not_put_back() -> io::Result<()> {
+        let (dir, path, listed, hash) = original(b"plain original")?;
+        let outside = tempfile::tempdir()?;
+        let target = outside.path().join("target.txt");
+        fs::write(&target, b"OUTSIDE")?;
+        let staged = dir.path().join("staged.txt");
+        let mut swap = || {
+            let _ = std::os::unix::fs::symlink(&target, &staged)
+                .and_then(|()| fs::rename(&staged, &path));
+        };
+        let result = wipe_original_with(&path, listed, 14, &hash, &mut swap);
+        assert_eq!(result, OriginalWipe::Kept);
+        let names = names_in(dir.path())?;
+        assert_eq!(names.len(), 1, "{names:?}");
+        assert!(names[0].starts_with("original.txt.restored-"), "{names:?}");
+        let kept = fs::symlink_metadata(dir.path().join(&names[0]))?;
+        assert!(kept.file_type().is_symlink());
+        assert_eq!(fs::read(&target)?, b"OUTSIDE");
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_read_only_original_open_elsewhere_keeps_its_attribute() -> io::Result<()> {
+        let (_dir, path, _, hash) = original(b"plain original")?;
+        let mut permissions = fs::metadata(&path)?.permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&path, permissions)?;
+        let listed = stat(&fs::symlink_metadata(&path)?);
+        let held = File::open(&path)?; // the exclusive open fails while this is open
+        assert_eq!(wipe_original(&path, listed, 14, &hash), OriginalWipe::Kept);
+        drop(held);
+        assert!(fs::metadata(&path)?.permissions().readonly());
         assert_eq!(fs::read(&path)?, b"plain original");
         Ok(())
     }
