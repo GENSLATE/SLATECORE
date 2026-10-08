@@ -8,7 +8,7 @@
 // cspell:ignore crdownload rfind
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -230,14 +230,7 @@ pub(crate) fn wipe_file(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
     let Some(mut file) = open_for_wipe(path, meta)? else {
         return unlink(path);
     };
-    let zeros = vec![0u8; 64 * 1024];
-    let mut left = meta.len();
-    while left > 0 {
-        let n = usize::try_from(left.min(zeros.len() as u64)).unwrap_or(zeros.len());
-        file.write_all(&zeros[..n])?;
-        left -= n as u64;
-    }
-    file.sync_all()?;
+    write_zeros(&mut file, meta.len())?;
     file.set_len(0)?;
     drop(file);
     let mut target = path.to_path_buf();
@@ -348,6 +341,190 @@ fn writable(mut permissions: fs::Permissions) -> fs::Permissions {
     permissions
 }
 
+/// Overwrites the first `len` bytes of `file` with zeros and syncs.
+fn write_zeros(file: &mut File, len: u64) -> io::Result<()> {
+    let zeros = vec![0u8; 64 * 1024];
+    let mut left = len;
+    while left > 0 {
+        let n = usize::try_from(left.min(zeros.len() as u64)).unwrap_or(zeros.len());
+        file.write_all(&zeros[..n])?;
+        left -= n as u64;
+    }
+    file.sync_all()
+}
+
+/// What became of a plain original after its import (see [`wipe_original`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OriginalWipe {
+    /// The original was overwritten and is gone.
+    Wiped,
+    /// Left in place: it is not provably what was encrypted (untouched), or the overwrite
+    /// itself failed partway. It stays a foreign item.
+    Kept,
+}
+
+/// Wipes a file dropped into the vault folder once it is in the vault (research/vault.md 6.6),
+/// only while the file at `path` is still exactly what was encrypted: a plain, singly linked file
+/// with the `listed` length and time, `len` bytes and content `hash`.
+///
+/// Unlike [`wipe_file`] (which owns the session folder), nothing at `path` is unlinked unless it
+/// is proven to be the emptied original. The content is hashed and overwritten through one
+/// handle, on Windows opened without sharing and without following a reparse point, so nobody
+/// can write, rename or delete the file between the hash and the overwrite. (Unix has no such
+/// lock: a file renamed over the original is not touched, and a change of length or time after
+/// the hash is refused before anything is written.) The emptied file is
+/// then renamed to a random name next to it and deleted only if what was moved is still the
+/// emptied file; anything else that was moved is put back under its name.
+pub(crate) fn wipe_original(
+    path: &Path,
+    listed: Baseline,
+    len: u64,
+    hash: &[u8; 32],
+) -> OriginalWipe {
+    wipe_original_with(path, listed, len, hash, &mut || {})
+}
+
+/// [`wipe_original`], running `between` after the hash matched and before the overwrite.
+fn wipe_original_with(
+    path: &Path,
+    listed: Baseline,
+    len: u64,
+    hash: &[u8; 32],
+    between: &mut dyn FnMut(),
+) -> OriginalWipe {
+    let Some((mut file, restore)) = open_original(path, listed, len) else {
+        return OriginalWipe::Kept;
+    };
+    let hashed = crypto::hash_reader(&mut file).is_ok_and(|h| h == *hash);
+    if hashed {
+        between();
+    }
+    // Unix cannot keep other writers out: refuse if the file changed in the meantime.
+    let ready = hashed && is_as_listed(&file, listed, len) && file.seek(SeekFrom::Start(0)).is_ok();
+    if !ready {
+        if let Some(permissions) = restore {
+            let _ = file.set_permissions(permissions);
+        }
+        return OriginalWipe::Kept;
+    }
+    if write_zeros(&mut file, len).is_err()
+        || !file.metadata().is_ok_and(|m| m.len() == len) // grown meanwhile: keep the rest
+        || file.set_len(0).and_then(|()| file.sync_all()).is_err()
+    {
+        return OriginalWipe::Kept;
+    }
+    let Ok(emptied) = file.metadata() else {
+        return OriginalWipe::Kept;
+    };
+    drop(file);
+    dispose(path, &emptied)
+}
+
+/// Opens the original at `path` exclusively if it is the plain, singly linked file `listed`
+/// describes, clearing the read-only attribute if needed (returned for restoring).
+fn open_original(
+    path: &Path,
+    listed: Baseline,
+    len: u64,
+) -> Option<(File, Option<fs::Permissions>)> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    if !meta.is_file() || has_other_names(&meta) || stat(&meta) != listed || meta.len() != len {
+        return None;
+    }
+    let (file, restore) = match open_exclusive(path) {
+        Ok(file) => (file, None),
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied && meta.permissions().readonly() => {
+            // Read-only: clear the attribute through a handle, so a swapped-in link is not
+            // followed.
+            let handle = still_the_same(open_no_follow(path, false).ok()?, &meta).ok()??;
+            handle.set_permissions(writable(meta.permissions())).ok()?;
+            drop(handle);
+            (open_exclusive(path).ok()?, Some(meta.permissions()))
+        }
+        Err(_) => return None,
+    };
+    match still_the_same(file, &meta) {
+        Ok(Some(file)) if is_as_listed(&file, listed, len) => Some((file, restore)),
+        Ok(Some(file)) => {
+            if let Some(permissions) = restore {
+                let _ = file.set_permissions(permissions);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// `true` when the open file still has the `listed` length and time and no other name.
+fn is_as_listed(file: &File, listed: Baseline, len: u64) -> bool {
+    file.metadata()
+        .is_ok_and(|m| !has_other_names(&m) && stat(&m) == listed && m.len() == len)
+}
+
+/// Opens a file for reading and writing, exclusively and without following a reparse point on
+/// Windows. Unix has no mandatory exclusion; [`still_the_same`] catches a followed link.
+fn open_exclusive(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options
+            .share_mode(0)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    options.open(path)
+}
+
+/// Removes the emptied original: renamed to a random name first, deleted only if what moved is
+/// still the emptied file (`emptied`: its metadata after truncation), else put back.
+fn dispose(path: &Path, emptied: &fs::Metadata) -> OriginalWipe {
+    let (Some(parent), Ok(random)) = (path.parent(), crypto::random::<8>()) else {
+        return OriginalWipe::Kept;
+    };
+    let moved = parent.join(hex(&random));
+    if fs::rename(path, &moved).is_err() {
+        return OriginalWipe::Kept; // an empty file stays; it is imported and wiped next time
+    }
+    if is_emptied(&moved, emptied) {
+        return if fs::remove_file(&moved).is_ok() {
+            OriginalWipe::Wiped
+        } else {
+            OriginalWipe::Kept
+        };
+    }
+    // Something else had replaced the original (which is then already gone): put it back
+    // without replacing whatever may be at `path` now.
+    if fs::hard_link(&moved, path).is_ok() {
+        let _ = fs::remove_file(&moved);
+    } else if fs::symlink_metadata(path).is_err() {
+        let _ = fs::rename(&moved, path);
+    }
+    OriginalWipe::Wiped
+}
+
+/// `true` when `path` is a plain, empty, singly linked file (on Unix, the very file `emptied`
+/// describes).
+fn is_emptied(path: &Path, emptied: &fs::Metadata) -> bool {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    let same = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            (meta.dev(), meta.ino()) == (emptied.dev(), emptied.ino())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = emptied;
+            true
+        }
+    };
+    same && meta.is_file() && meta.len() == 0 && !has_other_names(&meta)
+}
+
 /// Removes a working copy and, when it is then empty, its `<nnnn>` folder.
 pub(crate) fn wipe_session_file(file: &SessionFile) {
     let mut report = WipeReport::default();
@@ -384,6 +561,133 @@ mod tests {
         if !cfg!(windows) {
             assert!(short.len() <= 255);
         }
+        Ok(())
+    }
+
+    /// A synthetic original in its own folder: `(folder, path, listed, hash)`.
+    fn original(bytes: &[u8]) -> io::Result<(tempfile::TempDir, PathBuf, Baseline, [u8; 32])> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("original.txt");
+        fs::write(&path, bytes)?;
+        let listed = stat(&fs::symlink_metadata(&path)?);
+        let hash = crypto::hash_reader(&mut File::open(&path)?)?;
+        Ok((dir, path, listed, hash))
+    }
+
+    fn names_in(dir: &Path) -> io::Result<Vec<String>> {
+        let mut names: Vec<String> = fs::read_dir(dir)?
+            .map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
+            .collect::<io::Result<_>>()?;
+        names.sort();
+        Ok(names)
+    }
+
+    #[test]
+    fn an_unchanged_original_is_wiped_and_removed() -> io::Result<()> {
+        let (dir, path, listed, hash) = original(b"plain original")?;
+        assert_eq!(wipe_original(&path, listed, 14, &hash), OriginalWipe::Wiped);
+        assert_eq!(names_in(dir.path())?, Vec::<String>::new());
+        Ok(())
+    }
+
+    #[test]
+    fn an_original_replaced_by_rename_is_kept() -> io::Result<()> {
+        let (dir, path, listed, hash) = original(b"plain original")?;
+        // An atomic save: same length and time, other content, moved over the name.
+        let staged = dir.path().join("staged.txt");
+        fs::write(&staged, b"NEW CONTENT!!!")?;
+        if let Some(time) = listed.1 {
+            File::options()
+                .write(true)
+                .open(&staged)?
+                .set_modified(time)?;
+        }
+        fs::rename(&staged, &path)?;
+        assert_eq!(stat(&fs::symlink_metadata(&path)?), listed);
+        assert_eq!(wipe_original(&path, listed, 14, &hash), OriginalWipe::Kept);
+        assert_eq!(fs::read(&path)?, b"NEW CONTENT!!!");
+        assert_eq!(names_in(dir.path())?, vec!["original.txt".to_owned()]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_replacement_made_after_the_hash_is_never_wiped() -> io::Result<()> {
+        let (dir, path, listed, hash) = original(b"plain original")?;
+        let staged = dir.path().join("staged.txt");
+        let mut swapped = false;
+        let mut swap = || {
+            // Refused on Windows, where the original is held open exclusively.
+            swapped = fs::write(&staged, b"saved meanwhile")
+                .and_then(|()| fs::rename(&staged, &path))
+                .is_ok();
+        };
+        let result = wipe_original_with(&path, listed, 14, &hash, &mut swap);
+        // Either way the original itself is gone.
+        assert_eq!(result, OriginalWipe::Wiped);
+        if swapped {
+            assert_eq!(names_in(dir.path())?, vec!["original.txt".to_owned()]);
+            assert_eq!(fs::read(&path)?, b"saved meanwhile");
+        } else {
+            assert_eq!(names_in(dir.path())?, vec!["staged.txt".to_owned()]);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_write_after_the_hash_is_not_lost() -> io::Result<()> {
+        let (dir, path, listed, hash) = original(b"plain original")?;
+        let mut appended = false;
+        let mut append = || {
+            // Refused on Windows (exclusive handle); lands in the same file elsewhere.
+            appended = File::options()
+                .append(true)
+                .open(&path)
+                .and_then(|mut file| file.write_all(b"+appended"))
+                .is_ok();
+        };
+        let result = wipe_original_with(&path, listed, 14, &hash, &mut append);
+        if appended {
+            assert_eq!(result, OriginalWipe::Kept);
+            assert_eq!(fs::read(&path)?, b"plain original+appended");
+            assert_eq!(names_in(dir.path())?, vec!["original.txt".to_owned()]);
+        } else {
+            assert_eq!(result, OriginalWipe::Wiped);
+            assert_eq!(names_in(dir.path())?, Vec::<String>::new());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_changed_original_is_kept_untouched() -> io::Result<()> {
+        let (_dir, path, listed, hash) = original(b"plain original")?;
+        let other = crypto::hash_reader(&mut &b"something else"[..])?;
+        assert_eq!(wipe_original(&path, listed, 14, &other), OriginalWipe::Kept);
+        assert_eq!(wipe_original(&path, listed, 13, &hash), OriginalWipe::Kept);
+        assert_eq!(fs::read(&path)?, b"plain original");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linked_originals_are_kept() -> io::Result<()> {
+        let (dir, path, listed, hash) = original(b"plain original")?;
+        let other_name = dir.path().join("other-name.txt");
+        fs::hard_link(&path, &other_name)?;
+        let listed_now = stat(&fs::symlink_metadata(&path)?);
+        assert_eq!(
+            wipe_original(&path, listed_now, 14, &hash),
+            OriginalWipe::Kept
+        );
+        assert_eq!(fs::read(&other_name)?, b"plain original");
+        fs::remove_file(&other_name)?;
+
+        let outside = tempfile::tempdir()?;
+        let target = outside.path().join("target.txt");
+        fs::rename(&path, &target)?;
+        std::os::unix::fs::symlink(&target, &path)?;
+        assert_eq!(wipe_original(&path, listed, 14, &hash), OriginalWipe::Kept);
+        assert_eq!(fs::read(&target)?, b"plain original");
+        assert!(fs::symlink_metadata(&path)?.file_type().is_symlink());
         Ok(())
     }
 

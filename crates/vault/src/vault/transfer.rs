@@ -7,7 +7,8 @@
 //! A folder import lists and name-checks the whole tree first, encrypts every file, then adds
 //! everything in one index commit: it lands completely or not at all. Foreign items (plain
 //! files dropped into the vault folder) are wiped only file by file, and only when the file on
-//! disk is still exactly what was encrypted and its blob decrypts back to it.
+//! disk is still exactly what was encrypted and its blob decrypts back to it. A foreign folder
+//! that is left holding only links or other skipped entries is not imported again.
 
 // cspell:ignore gvpart
 
@@ -100,8 +101,9 @@ struct Target<'a> {
     name: &'a str,
     conflict: Conflict,
     progress: Option<ProgressFn<'a>>,
-    /// Decrypt every new blob back before committing (foreign items, whose originals are wiped).
-    verify: bool,
+    /// A foreign item: every new blob is decrypted back before committing (its original is
+    /// wiped), and a folder with no files merges into a folder of the same name.
+    foreign: bool,
 }
 
 /// One file as listed before it was encrypted, and what its encryption produced.
@@ -114,6 +116,8 @@ struct ImportedFile {
 /// What an import committed: its entry, the files it encrypted and the source folders.
 struct Imported {
     entry: EntryInfo,
+    /// `false` when the vault already held everything (nothing was committed).
+    changed: bool,
     files: Vec<ImportedFile>,
     folders: Vec<PathBuf>,
 }
@@ -134,6 +138,8 @@ struct TreePlan {
     files: Vec<PlannedFile>,
     /// Every source folder including the top one.
     folders: Vec<PathBuf>,
+    /// Entries left out: links, anything that is neither a file nor a folder, unreadable ones.
+    skipped: usize,
 }
 
 /// Lists `source` as it would land at `top`, checking every name, the depth and the length.
@@ -144,19 +150,23 @@ fn plan_tree(source: &Path, top: &VaultPath) -> Result<TreePlan, VaultError> {
         dirs: Vec::new(),
         files: Vec::new(),
         folders: vec![source.to_path_buf()],
+        skipped: 0,
     };
     let mut stack = vec![(source.to_path_buf(), Vec::<String>::new(), top.clone())];
     while let Some((dir, rel, at)) = stack.pop() {
-        let mut children: Vec<PathBuf> = fs::read_dir(&dir)
-            .map_err(VaultError::io("reading the folder to import"))?
-            .filter_map(Result::ok)
-            .map(|e| e.path())
-            .collect();
+        let mut children = Vec::new();
+        for entry in fs::read_dir(&dir).map_err(VaultError::io("reading the folder to import"))? {
+            match entry {
+                Ok(entry) => children.push(entry.path()),
+                Err(_) => plan.skipped += 1,
+            }
+        }
         children.sort();
         for child in children {
             let meta = fs::symlink_metadata(&child)
                 .map_err(VaultError::io("reading the folder to import"))?;
             if meta.file_type().is_symlink() || !(meta.is_dir() || meta.is_file()) {
+                plan.skipped += 1;
                 continue;
             }
             let name = source_name(&child)?;
@@ -188,6 +198,8 @@ fn plan_tree(source: &Path, top: &VaultPath) -> Result<TreePlan, VaultError> {
 /// Where one new entry lands in `next`.
 struct Staged {
     path: VaultPath,
+    /// `false` when a folder merged into an existing one (nothing was added).
+    added: bool,
     /// The blob of a file this one replaced.
     superseded: Option<[u8; 16]>,
 }
@@ -210,6 +222,7 @@ fn stage_entry(
         (Some((path, EntryKind::Dir, _)), _) if merge_dirs && entry.kind == EntryKind::Dir => {
             return Ok(Staged {
                 path,
+                added: false,
                 superseded: None,
             });
         }
@@ -222,32 +235,23 @@ fn stage_entry(
         (Some(_), _) => return Err(VaultError::Exists(target.as_str().to_owned())),
     };
     next.entries.insert(path.clone(), entry);
-    Ok(Staged { path, superseded })
-}
-
-/// `Some(meta)` when the original at `file.source` is still exactly what was encrypted: the
-/// same plain file, length and time as listed, and the same content hash.
-fn unchanged_original(file: &ImportedFile) -> Option<fs::Metadata> {
-    let meta = fs::symlink_metadata(&file.source).ok()?;
-    if !meta.is_file()
-        || session::stat(&meta) != file.listed
-        || meta.len() != file.summary.plain_len
-    {
-        return None;
-    }
-    let hash = File::open(&file.source)
-        .and_then(|mut f| crypto::hash_reader(&mut f))
-        .ok()?;
-    (hash == file.summary.hash).then_some(meta)
+    Ok(Staged {
+        path,
+        added: true,
+        superseded,
+    })
 }
 
 /// Wipes the originals of a committed foreign import: only the files that are unchanged, then
 /// the folders that became empty (deepest first, never recursively).
 fn wipe_originals(imported: &Imported) {
     for file in &imported.files {
-        if let Some(meta) = unchanged_original(file) {
-            let _ = session::wipe_file(&file.source, &meta);
-        }
+        session::wipe_original(
+            &file.source,
+            file.listed,
+            file.summary.plain_len,
+            &file.summary.hash,
+        );
     }
     let mut folders = imported.folders.clone();
     folders.sort_by_key(|f| std::cmp::Reverse(f.components().count()));
@@ -380,10 +384,11 @@ impl Vault {
             name: &name,
             conflict: on_conflict,
             progress,
-            verify: false,
+            foreign: false,
         };
         let imported = if meta.is_dir() {
             self.import_dir(&ctx, source, target)?
+                .ok_or(VaultError::Internal("folder import skipped"))?
         } else {
             self.import_file(&ctx, source, &meta, target)?
         };
@@ -446,7 +451,7 @@ impl Vault {
         let mut file = File::open(source).map_err(VaultError::io("opening the file to import"))?;
         let (blob, summary) = self.write_blob(ctx, &mut file, meta.len(), target.progress)?;
         drop(file);
-        if target.verify
+        if target.foreign
             && let Err(e) = self.verify_blob(ctx, &blob, &summary)
         {
             self.remove_blobs(&[blob]);
@@ -456,6 +461,7 @@ impl Vault {
         match self.commit_new_entry(ctx, target, entry) {
             Ok(entry) => Ok(Imported {
                 entry,
+                changed: true,
                 files: vec![ImportedFile {
                     source: source.to_path_buf(),
                     listed,
@@ -506,12 +512,15 @@ impl Vault {
     }
 
     /// Lists, encrypts and commits a whole folder tree (see the module docs).
+    ///
+    /// `None` for a foreign folder that holds no file but skipped entries (a link, say): it can
+    /// never be emptied, so it is left alone instead of landing again at every unlock.
     fn import_dir(
         &self,
         ctx: &Ctx,
         source: &Path,
         target: Target<'_>,
-    ) -> Result<Imported, VaultError> {
+    ) -> Result<Option<Imported>, VaultError> {
         let plan = {
             let mut inner = self.inner()?;
             let unlocked = self.current(&mut inner, ctx)?;
@@ -531,9 +540,12 @@ impl Vault {
             check_capacity(&unlocked.index, 1 + plan.dirs.len() + plan.files.len())?;
             plan
         };
+        if target.foreign && plan.files.is_empty() && plan.skipped > 0 {
+            return Ok(None);
+        }
         let written = self.encrypt_tree(ctx, &plan, target)?;
         let blobs: Vec<[u8; 16]> = written.iter().map(|(blob, _)| *blob).collect();
-        let entry = self
+        let (entry, changed) = self
             .commit_tree(ctx, target, &plan, &written)
             .map_err(|failure| self.discard(failure, &blobs))?;
         let files = plan
@@ -546,11 +558,12 @@ impl Vault {
                 summary,
             })
             .collect();
-        Ok(Imported {
+        Ok(Some(Imported {
             entry,
+            changed,
             files,
             folders: plan.folders,
-        })
+        }))
     }
 
     /// Encrypts every planned file into a new blob; on any failure all of them are deleted.
@@ -584,7 +597,7 @@ impl Vault {
                     self.write_blob(ctx, &mut reader, file.listed.0, Some(&forward))
                 })
                 .and_then(|(blob, summary)| {
-                    if target.verify
+                    if target.foreign
                         && let Err(e) = self.verify_blob(ctx, &blob, &summary)
                     {
                         self.remove_blobs(&[blob]);
@@ -614,7 +627,7 @@ impl Vault {
         target: Target<'_>,
         plan: &TreePlan,
         written: &[([u8; 16], StreamSummary)],
-    ) -> Result<EntryInfo, NotCommitted> {
+    ) -> Result<(EntryInfo, bool), NotCommitted> {
         let refused = NotCommitted::Refused;
         let lost = || NotCommitted::Refused(VaultError::Internal("import plan out of step"));
         let mut inner = self.inner().map_err(refused)?;
@@ -628,9 +641,12 @@ impl Vault {
             target.name,
             target.conflict,
             Entry::dir(now),
-            target.conflict == Conflict::Replace,
+            // A foreign folder with no files merges, so one that keeps reappearing empty (it
+            // could not be removed) adds nothing.
+            target.conflict == Conflict::Replace || (target.foreign && plan.files.is_empty()),
         )
         .map_err(refused)?;
+        let mut added = top.added;
         let mut placed: HashMap<&[String], VaultPath> = HashMap::new();
         placed.insert(&[], top.path.clone());
         for rel in &plan.dirs {
@@ -645,6 +661,7 @@ impl Vault {
                 true,
             )
             .map_err(refused)?;
+            added |= staged.added;
             placed.insert(rel, staged.path);
         }
         let mut superseded = Vec::new();
@@ -654,6 +671,7 @@ impl Vault {
             let entry = Entry::file(*blob, summary.plain_len, file.modified_ms);
             let staged = stage_entry(&mut next, &parent, name, target.conflict, entry, false)
                 .map_err(refused)?;
+            added |= staged.added;
             superseded.extend(staged.superseded);
         }
         check_capacity(&next, 0).map_err(refused)?;
@@ -662,10 +680,13 @@ impl Vault {
             .get(&top.path)
             .map(|e| info(&top.path, e))
             .ok_or_else(lost)?;
+        if !added {
+            return Ok((listed, false)); // only folders the vault already has
+        }
         self.commit(unlocked, next).map_err(NotCommitted::Unclear)?;
         drop(inner);
         self.remove_blobs(&superseded);
-        Ok(listed)
+        Ok((listed, true))
     }
 
     /// Refuses an export destination inside the vault folder or the session folder.
@@ -892,22 +913,25 @@ impl Vault {
                 name: &name,
                 conflict: Conflict::KeepBoth,
                 progress,
-                verify: true,
+                foreign: true,
             };
             let result = if meta.is_dir() {
                 self.import_dir(&ctx, &item, target)
             } else {
-                self.import_file(&ctx, &item, &meta, target)
+                self.import_file(&ctx, &item, &meta, target).map(Some)
             };
             match result {
-                Ok(done) => {
+                Ok(Some(done)) => {
                     wipe_originals(&done);
-                    imported.push(done.entry);
+                    if done.changed {
+                        imported.push(done.entry);
+                    }
                 }
                 Err(e @ (VaultError::Cancelled | VaultError::Locked | VaultError::Internal(_))) => {
                     return Err(e);
                 }
-                Err(_) => {}
+                // Not imported (or nothing importable): left in place, still counted as foreign.
+                Ok(None) | Err(_) => {}
             }
         }
         let remaining = store::foreign_items(&self.layout).len();

@@ -101,21 +101,43 @@ pub(crate) fn write_slot(path: &Path, bytes: &[u8]) -> Result<(), VaultError> {
         .map_err(VaultError::io("syncing a vault slot"))
 }
 
+/// How a slot was found, which decides whether it may be rewritten from the other one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SlotState {
+    Missing,
+    /// Present but could not be read (an I/O error, a folder in its place). It may hold a newer
+    /// generation (say, after a half-done password change), so it is never rewritten.
+    Unreadable,
+    /// Read, but not a valid slot (torn write, damage).
+    Invalid,
+    /// A checksum-valid slot of a newer format: never rewritten with an older one.
+    Newer,
+    Valid,
+}
+
+/// `true` when a slot that is not the winner may be rewritten from it: only a slot that is
+/// missing or was read and found damaged.
+fn may_heal(state: SlotState) -> bool {
+    matches!(state, SlotState::Missing | SlotState::Invalid)
+}
+
 /// Both header slots as found on disk.
 pub(crate) struct HeaderRead {
     /// `true` when at least one slot file exists (the vault has been created).
     pub(crate) exists: bool,
     /// The slot with the highest valid generation, or why none is usable.
     pub(crate) winner: Result<HeaderSlot, VaultError>,
-    /// Slots that are missing, invalid or older than the winner.
+    /// Slots to rewrite from the winner: missing, damaged or older. A slot that could not be
+    /// read or is of a newer format is never marked.
     pub(crate) stale: [bool; 2],
 }
 
 /// Parses both header slots and picks the highest valid generation (research/vault.md 4.2).
-/// A slot that cannot be read counts as damaged.
+/// A slot that cannot be read is passed over, like a damaged one, but never marked stale.
 pub(crate) fn read_headers(layout: &Layout) -> HeaderRead {
     let mut exists = false;
     let mut parsed: [Option<HeaderSlot>; 2] = [None, None];
+    let mut states = [SlotState::Missing; 2];
     let mut newer_format = None;
     let mut io_error = None;
     for (i, path) in layout.headers.iter().enumerate() {
@@ -123,20 +145,25 @@ pub(crate) fn read_headers(layout: &Layout) -> HeaderRead {
             SlotFile::Missing => continue,
             SlotFile::Unreadable(e) => {
                 exists = true;
+                states[i] = SlotState::Unreadable;
                 io_error.get_or_insert(e);
                 continue;
             }
             SlotFile::Bytes(bytes) => bytes,
         };
         exists = true;
-        match HeaderSlot::decode(&bytes) {
-            Ok(slot) => parsed[i] = Some(slot),
+        states[i] = match HeaderSlot::decode(&bytes) {
+            Ok(slot) => {
+                parsed[i] = Some(slot);
+                SlotState::Valid
+            }
             // A checksum-valid slot from a newer format is worth reporting over "damaged".
             Err(e @ (VaultError::UnsupportedVersion(_) | VaultError::UnsupportedKdf)) => {
                 newer_format = Some(e);
+                SlotState::Newer
             }
-            Err(_) => {}
-        }
+            Err(_) => SlotState::Invalid,
+        };
     }
     let winner = match (&parsed[0], &parsed[1]) {
         (Some(a), Some(b)) => Ok(if b.generation > a.generation {
@@ -156,7 +183,10 @@ pub(crate) fn read_headers(layout: &Layout) -> HeaderRead {
             .unwrap_or(VaultError::HeaderDamaged)),
     };
     let stale = match &winner {
-        Ok(w) => [0, 1].map(|i| parsed[i].as_ref().is_none_or(|s| *s != *w)),
+        Ok(w) => [0, 1].map(|i| match &parsed[i] {
+            Some(slot) => slot != w,
+            None => may_heal(states[i]),
+        }),
         Err(_) => [false, false],
     };
     HeaderRead {
@@ -227,7 +257,8 @@ pub(crate) struct IndexRead {
 }
 
 /// Decrypts both index slots, uses the highest valid generation and rewrites a missing or
-/// broken slot from it. Neither slot valid: [`VaultError::Tampered`]`("index")`.
+/// damaged slot from it (never one that could not be read). Neither slot valid:
+/// [`VaultError::Tampered`]`("index")`.
 pub(crate) fn load_index(
     layout: &Layout,
     key: &SecretKey,
@@ -235,12 +266,19 @@ pub(crate) fn load_index(
 ) -> Result<IndexRead, VaultError> {
     let max = INDEX_HEADER_LEN + MAX_INDEX_PLAINTEXT + 16;
     let mut slots: [Option<(u64, Index, Vec<u8>)>; 2] = [None, None];
+    let mut states = [SlotState::Missing; 2];
     for (i, path) in layout.indexes.iter().enumerate() {
-        if let SlotFile::Bytes(bytes) = read_slot(path, max)
-            && let Ok((generation, index)) = crypto::open_index(key, vault_id, &bytes)
-        {
-            slots[i] = Some((generation, index, bytes));
-        }
+        states[i] = match read_slot(path, max) {
+            SlotFile::Missing => SlotState::Missing,
+            SlotFile::Unreadable(_) => SlotState::Unreadable,
+            SlotFile::Bytes(bytes) => match crypto::open_index(key, vault_id, &bytes) {
+                Ok((generation, index)) => {
+                    slots[i] = Some((generation, index, bytes));
+                    SlotState::Valid
+                }
+                Err(_) => SlotState::Invalid,
+            },
+        };
     }
     let [a, b] = slots;
     let (winner, slot, other_valid) = match (a, b) {
@@ -251,7 +289,7 @@ pub(crate) fn load_index(
         (None, None) => return Err(VaultError::Tampered(crate::error::tamper::INDEX)),
     };
     let (generation, index, bytes) = winner;
-    if !other_valid {
+    if !other_valid && may_heal(states[1 - slot]) {
         let _ = write_slot(&layout.indexes[1 - slot], &bytes);
     }
     Ok(IndexRead {
@@ -367,4 +405,67 @@ pub(crate) fn foreign_items(layout: &Layout) -> Vec<PathBuf> {
         .collect();
     items.sort();
     items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::KdfParams;
+
+    fn header(generation: u64) -> HeaderSlot {
+        HeaderSlot {
+            generation,
+            vault_id: [7; 16],
+            kdf: KdfParams::MINIMUM,
+            salt: [1; 16],
+            wrap_nonce: [2; 24],
+            wrapped_vk: [3; 48],
+        }
+    }
+
+    fn stale_with_slot_a(make_a: impl FnOnce(&Path) -> std::io::Result<()>) -> [bool; 2] {
+        let Ok(dir) = tempfile::tempdir() else {
+            return [true, true];
+        };
+        let layout = Layout::new(dir.path());
+        if write_slot(&layout.headers[1], &header(5).encode()).is_err()
+            || make_a(&layout.headers[0]).is_err()
+        {
+            return [true, true];
+        }
+        let read = read_headers(&layout);
+        assert_eq!(read.winner.ok(), Some(header(5)));
+        read.stale
+    }
+
+    #[test]
+    fn an_unreadable_header_slot_is_never_healed() {
+        // A folder in its place: present, but it could not be read.
+        assert_eq!(stale_with_slot_a(|a| fs::create_dir(a)), [false, false]);
+    }
+
+    #[test]
+    fn missing_damaged_and_older_header_slots_are_healed() {
+        assert_eq!(stale_with_slot_a(|_| Ok(())), [true, false]);
+        assert_eq!(
+            stale_with_slot_a(|a| fs::write(a, b"garbage")),
+            [true, false]
+        );
+        assert_eq!(
+            stale_with_slot_a(|a| fs::write(a, header(4).encode())),
+            [true, false]
+        );
+        assert_eq!(
+            stale_with_slot_a(|a| fs::write(a, header(5).encode())),
+            [false, false]
+        );
+    }
+
+    #[test]
+    fn only_missing_or_damaged_index_slots_are_healed() {
+        assert!(may_heal(SlotState::Missing));
+        assert!(may_heal(SlotState::Invalid));
+        assert!(!may_heal(SlotState::Unreadable));
+        assert!(!may_heal(SlotState::Newer));
+    }
 }

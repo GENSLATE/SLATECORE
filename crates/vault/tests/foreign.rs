@@ -133,3 +133,104 @@ fn an_explicit_folder_import_is_one_commit() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn a_folder_left_holding_only_links_is_not_imported_again() -> TestResult {
+    let fixture = Fixture::new()?;
+    let target = fixture.scratch()?.join("elsewhere");
+    fs::create_dir_all(&target)?;
+    fs::write(target.join("kept.txt"), b"OUTSIDE-THE-VAULT")?;
+    let photos = fixture.root().join("Photos");
+    fs::create_dir_all(photos.join("empty"))?;
+    fs::write(photos.join("a.txt"), b"imported once")?;
+    if !common::symlink_dir(&target, &photos.join("link"))? {
+        return Ok(()); // links (junctions) cannot be made here
+    }
+
+    let vault = fixture.create()?; // create ingests foreign items
+    assert_eq!(common::names(&vault, "")?, vec!["Photos".to_owned()]);
+    assert_eq!(
+        fixture.export_bytes(&vault, "Photos/a.txt")?,
+        b"imported once"
+    );
+    assert!(!photos.join("a.txt").exists());
+    assert!(!photos.join("empty").exists());
+    assert_eq!(
+        vault.status().foreign_items,
+        1,
+        "the folder with the link stays"
+    );
+
+    let generations = || -> Result<[u64; 2], Box<dyn std::error::Error>> {
+        Ok([
+            common::index_generation(&fixture.root().join("index.a.gvi"))?,
+            common::index_generation(&fixture.root().join("index.b.gvi"))?,
+        ])
+    };
+    let before = (generations()?, fixture.blobs()?);
+    for round in 1..=2 {
+        vault.lock(LockPolicy::SyncThenWipe)?;
+        vault.unlock(&pw(PASSWORD))?;
+        assert_eq!(
+            common::names(&vault, "")?,
+            vec!["Photos".to_owned()],
+            "round {round}"
+        );
+        assert_eq!(
+            (generations()?, fixture.blobs()?),
+            before,
+            "round {round}: nothing new is committed"
+        );
+        assert_eq!(vault.status().foreign_items, 1, "round {round}");
+    }
+    assert!(fs::symlink_metadata(photos.join("link")).is_ok());
+    assert_eq!(fs::read(target.join("kept.txt"))?, b"OUTSIDE-THE-VAULT");
+    Ok(())
+}
+
+#[test]
+fn a_foreign_folder_holding_only_a_link_is_left_alone() -> TestResult {
+    let fixture = Fixture::new()?;
+    let target = fixture.scratch()?.join("elsewhere");
+    fs::create_dir_all(&target)?;
+    let links = fixture.root().join("Links");
+    fs::create_dir_all(&links)?;
+    if !common::symlink_dir(&target, &links.join("link"))? {
+        return Ok(());
+    }
+    let vault = fixture.create()?;
+    common::assert_empty(&common::names(&vault, "")?);
+    assert!(fs::symlink_metadata(links.join("link")).is_ok());
+    assert_eq!(vault.status().foreign_items, 1);
+    Ok(())
+}
+
+#[test]
+fn an_empty_foreign_folder_merges_into_the_folder_of_that_name() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    vault.create_dir(&VaultPath::parse("Photos")?)?;
+    fs::create_dir_all(fixture.root().join("Photos").join("empty"))?;
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    vault.unlock(&pw(PASSWORD))?;
+    assert_eq!(common::names(&vault, "")?, vec!["Photos".to_owned()]);
+    assert_eq!(common::names(&vault, "Photos")?, vec!["empty".to_owned()]);
+    assert!(!fixture.root().join("Photos").exists());
+    assert_eq!(vault.status().foreign_items, 0);
+
+    // The same empty folders again: the vault has them all, so nothing is committed.
+    fs::create_dir_all(fixture.root().join("Photos").join("empty"))?;
+    let generations = || -> Result<[u64; 2], Box<dyn std::error::Error>> {
+        Ok([
+            common::index_generation(&fixture.root().join("index.a.gvi"))?,
+            common::index_generation(&fixture.root().join("index.b.gvi"))?,
+        ])
+    };
+    let before = generations()?;
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    vault.unlock(&pw(PASSWORD))?;
+    assert_eq!(generations()?, before);
+    assert_eq!(common::names(&vault, "Photos")?, vec!["empty".to_owned()]);
+    assert!(!fixture.root().join("Photos").exists());
+    Ok(())
+}
