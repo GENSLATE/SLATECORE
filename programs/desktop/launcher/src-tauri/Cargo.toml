@@ -28,8 +28,6 @@ genslate-launcher-core.workspace = true
 genslate-paths.workspace = true
 genslate-vault.workspace = true
 log.workspace = true
-notify.workspace = true
-notify-debouncer-full.workspace = true
 rfd.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
 serde.workspace = true
@@ -37,8 +35,6 @@ serde_json.workspace = true
 tauri = { workspace = true, features = ["common-controls-v6", "dynamic-acl"] }
 tauri-plugin-global-shortcut.workspace = true
 tauri-plugin-log.workspace = true
-tauri-plugin-opener.workspace = true
-tauri-plugin-os.workspace = true
 tauri-plugin-single-instance.workspace = true
 thiserror.workspace = true
 
