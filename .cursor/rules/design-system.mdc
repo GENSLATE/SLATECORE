@@ -1,0 +1,14 @@
+---
+description: Design system and tokens contract (flat Nord, motion and polish)
+globs:
+  - "packages/design-system/**"
+  - "packages/tokens/**"
+  - "programs/**/src/**/*.tsx"
+alwaysApply: false
+---
+Follow `.claude/rules/design-contract.md` and `.claude/rules/motion-polish.md` (read them first).
+@.claude/rules/design-contract.md
+@.claude/rules/motion-polish.md
+Hard rules: token utilities only (no raw hex, no `dark:`), no gradients or bevels, motion from
+tokens with reduced motion respected, never edit `**/generated/**`, show new UI in the Design Kit
+in both themes.

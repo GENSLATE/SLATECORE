@@ -1,0 +1,12 @@
+// cspell:ignore bradlc tamasfe
+{
+  "recommendations": [
+    "biomejs.biome",
+    "rust-lang.rust-analyzer",
+    "tauri-apps.tauri-vscode",
+    "bradlc.vscode-tailwindcss",
+    "streetsidesoftware.code-spell-checker",
+    "tamasfe.even-better-toml",
+    "oven.bun-vscode"
+  ]
+}

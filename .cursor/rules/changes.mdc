@@ -1,0 +1,7 @@
+---
+description: Changelog fragments in .changes/unreleased for user-visible changes
+alwaysApply: false
+---
+Follow `.claude/rules/changes.md` when a change is user-visible.
+@.claude/rules/changes.md
+One fragment per change, `.changes/unreleased/<Kind>-<yyyymmdd>-<hhmmss>.yaml` with kind, body, time.
