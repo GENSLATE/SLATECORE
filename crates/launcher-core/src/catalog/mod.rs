@@ -22,6 +22,7 @@ pub use genslate::GenslateRoots;
 pub use icon::{IconData, IconSource, load_icon};
 pub use model::{AppEntry, AppId, AppStatus, Source, title_case};
 
+use crate::config::issue_text;
 use crate::metadata::{TabSettings, metadata_dir};
 
 /// Everything the catalog scans.
@@ -88,6 +89,7 @@ pub struct TabInfo {
 pub struct Catalog {
     apps: Vec<AppEntry>,
     tabs: BTreeMap<Source, TabSettings>,
+    issues: Vec<String>,
 }
 
 /// The launcher's own key (`programs/genslate/launcher/`): never listed.
@@ -96,25 +98,34 @@ const SELF_KEY: &str = crate::APP_NAME;
 impl Catalog {
     /// Scans every source. Missing folders simply yield no apps.
     pub fn scan(roots: &CatalogRoots) -> Self {
+        let mut issues = Vec::new();
         let tabs: BTreeMap<Source, TabSettings> = Source::ALL
             .into_iter()
             .map(|source| {
                 let path = roots.metadata.join(source.settings_file());
                 let settings = TabSettings::load(&path).unwrap_or_else(|error| {
                     log::warn!("{error}; using default tab settings");
+                    issues.push(issue_text(&error));
                     TabSettings::default()
                 });
                 (source, settings)
             })
             .collect();
 
-        let mut apps = genslate::scan(&GenslateRoots {
-            programs: roots.source_dir(Source::Genslate).unwrap_or_default(),
-            metadata: roots.metadata.clone(),
-            icons: roots.icons.clone(),
-            dev_target: roots.dev_target.clone(),
-            exclude: vec![SELF_KEY.to_owned()],
-        });
+        // Without a `programs/` folder there is nothing to scan; a relative path must never be
+        // resolved against the working directory instead.
+        let mut apps = roots
+            .source_dir(Source::Genslate)
+            .map(|programs| {
+                genslate::scan(&GenslateRoots {
+                    programs,
+                    metadata: roots.metadata.clone(),
+                    icons: roots.icons.clone(),
+                    dev_target: roots.dev_target.clone(),
+                    exclude: vec![SELF_KEY.to_owned()],
+                })
+            })
+            .unwrap_or_default();
         if let Some(dir) = roots.source_dir(Source::Portapps) {
             apps.extend(portapps::scan(&dir));
         }
@@ -129,7 +140,14 @@ impl Catalog {
         apps.sort_by(|a, b| {
             (a.id.source, a.name.to_lowercase()).cmp(&(b.id.source, b.name.to_lowercase()))
         });
-        Self { apps, tabs }
+        Self { apps, tabs, issues }
+    }
+
+    /// Why a tab settings file (`genslate.toml`, `portapps.toml`, `portableapps.toml`) was
+    /// ignored, one line each, naming the file and never its folder. An ignored file means its
+    /// favorites and overrides are not applied until it is fixed. Empty when all are fine.
+    pub fn issues(&self) -> &[String] {
+        &self.issues
     }
 
     /// Every app (hidden ones included; the UI filters them).
@@ -501,6 +519,50 @@ mod tests {
                 repo.join("target/debug")
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn without_a_programs_folder_nothing_is_resolved_against_the_working_directory() -> TestResult {
+        // `cargo test` runs in the crate folder, which has a `src` directory full of files.
+        let tree = TempTree::new()?.file("metadata/src.toml", "[app]\nname = \"Src\"\n")?;
+        let catalog = Catalog::scan(&CatalogRoots {
+            programs: None,
+            metadata: tree.join("metadata"),
+            icons: tree.join("icons"),
+            dev_target: None,
+        });
+        assert_eq!(catalog.apps(), []);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_tab_settings_files_are_reported_not_just_logged() -> TestResult {
+        let tree = TempTree::new()?
+            .file("metadata/genslate.toml", "[apps.explorer]\nfavorite = \n")?
+            .file("metadata/portapps.toml", "enabled = \"yes\"\n")?
+            .file("metadata/portableapps.toml", "enabled = true\n")?
+            .file("programs/genslate/explorer/slatecore-explorer.exe", "")?;
+        let catalog = Catalog::scan(&roots(&tree));
+        let issues = catalog.issues();
+        assert_eq!(issues.len(), 2, "{issues:?}");
+        assert!(issues[0].starts_with("genslate.toml: line 2"), "{issues:?}");
+        assert!(issues[1].starts_with("portapps.toml:"), "{issues:?}");
+        let folder = tree.path().to_string_lossy().into_owned();
+        assert!(issues.iter().all(|issue| !issue.contains(&folder)));
+        // The scan still works with defaults for the broken files.
+        assert_eq!(catalog.apps().len(), 1);
+        assert!(!catalog.apps()[0].favorite);
+
+        // Once fixed, the next scan reports nothing.
+        tree.write(
+            "metadata/genslate.toml",
+            "[apps.explorer]\nfavorite = true\n",
+        )?;
+        tree.write("metadata/portapps.toml", "enabled = true\n")?;
+        let catalog = Catalog::scan(&roots(&tree));
+        assert_eq!(catalog.issues(), [] as [String; 0]);
+        assert!(catalog.apps()[0].favorite);
         Ok(())
     }
 }

@@ -74,9 +74,9 @@ fn entry(roots: &GenslateRoots, key: &str) -> AppEntry {
         .dev_target
         .as_ref()
         .map(|target| target.join(default_exe_name(key)))
-        .filter(|path| path.exists());
+        .filter(|path| path.is_file());
 
-    let (status, program) = if staged.exists() {
+    let (status, program) = if staged.is_file() {
         (AppStatus::Ready, Some(staged))
     } else if let Some(dev) = dev {
         (AppStatus::Ready, Some(dev))
@@ -98,12 +98,13 @@ fn entry(roots: &GenslateRoots, key: &str) -> AppEntry {
     app.keywords = meta.app.keywords;
     app.version = meta.build.version;
     app.publisher = Some("GENSLATE".to_owned());
-    app.status = if broken {
-        AppStatus::BrokenManifest
+    // A damaged manifest makes the app unavailable, like on the other tabs: never launchable.
+    if broken {
+        app.status = AppStatus::BrokenManifest;
     } else {
-        status
-    };
-    app.program = program;
+        app.status = status;
+        app.program = program;
+    }
     app.dir = dir.is_dir().then_some(dir);
     app.has_icon = icon.is_some();
     app.icon = icon;
@@ -146,7 +147,8 @@ fn is_app_key(key: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-fn has_files(dir: &Path) -> bool {
+/// Whether `dir` holds anything but a `.gitkeep` placeholder.
+pub(super) fn has_files(dir: &Path) -> bool {
     fs::read_dir(dir).is_ok_and(|mut entries| {
         entries.any(|entry| entry.is_ok_and(|entry| entry.file_name() != ".gitkeep"))
     })
@@ -266,6 +268,34 @@ mod tests {
         assert_eq!(status("explorer"), Some(AppStatus::Ready));
         assert_eq!(status("oldname"), Some(AppStatus::MissingExe));
         assert_eq!(status("stamped"), Some(AppStatus::Ready));
+        Ok(())
+    }
+
+    #[test]
+    fn a_broken_manifest_is_never_launchable_even_with_its_exe_present()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let tree = TempTree::new()?
+            .file("metadata/broken.toml", "[app\n")?
+            .file("programs/genslate/broken/slatecore-broken.exe", "")?;
+        let apps = scan(&roots(&tree));
+        let broken = apps.first().ok_or("broken")?;
+        assert_eq!(broken.status, AppStatus::BrokenManifest);
+        assert!(broken.program.is_none());
+        assert!(!broken.status.is_launchable());
+        Ok(())
+    }
+
+    #[test]
+    fn a_folder_named_like_the_exe_is_not_the_exe() -> Result<(), Box<dyn std::error::Error>> {
+        let tree = TempTree::new()?
+            .file("metadata/odd.toml", "[app]\nname = \"Odd\"\n")?
+            .dir("programs/genslate/odd/slatecore-odd.exe")?
+            .dir("target/debug/slatecore-odd.exe")?;
+        let mut roots = roots(&tree);
+        roots.dev_target = Some(tree.join("target/debug"));
+        let apps = scan(&roots);
+        assert_eq!(apps.first().map(|a| a.status), Some(AppStatus::MissingExe));
+        assert!(apps.first().is_some_and(|a| a.program.is_none()));
         Ok(())
     }
 }

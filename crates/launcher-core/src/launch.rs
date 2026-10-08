@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::LauncherError;
-use crate::catalog::AppEntry;
+use crate::catalog::{AppEntry, AppStatus};
 
 /// Variables with this prefix point the launcher's own `WebView2` at the install folder. A
 /// started app that embeds `WebView2` must not inherit them: it would share (and lock) the
@@ -35,13 +35,20 @@ impl LaunchSpec {
         args: Option<Vec<String>>,
         allowed_roots: &[PathBuf],
     ) -> Result<Self, LauncherError> {
-        if !app.status.is_launchable() {
-            return Err(LauncherError::NotInstalled(app.name.clone()));
+        let unavailable = |reason| LauncherError::Unavailable {
+            app: app.name.clone(),
+            reason,
+        };
+        match app.status {
+            AppStatus::NotInstalled => return Err(LauncherError::NotInstalled(app.name.clone())),
+            AppStatus::MissingExe => return Err(unavailable("its program is missing")),
+            AppStatus::BrokenManifest => return Err(unavailable("its manifest is damaged")),
+            AppStatus::Ready | AppStatus::Running => {}
         }
         let program = app
             .program
             .as_deref()
-            .ok_or_else(|| LauncherError::NotInstalled(app.name.clone()))?;
+            .ok_or_else(|| unavailable("it has no program to start"))?;
         let program = dunce::canonicalize(program).map_err(|source| LauncherError::Spawn {
             path: program.to_path_buf(),
             source,
@@ -163,18 +170,40 @@ mod tests {
     #[test]
     fn refuses_apps_that_are_unavailable() -> Result<(), Box<dyn std::error::Error>> {
         let tree = TempTree::new()?.file("programs/x.exe", "")?;
-        for status in [
-            AppStatus::NotInstalled,
-            AppStatus::MissingExe,
-            AppStatus::BrokenManifest,
+        for (status, kind, wording) in [
+            (AppStatus::NotInstalled, "not-installed", "is not installed"),
+            (
+                AppStatus::MissingExe,
+                "unavailable",
+                "its program is missing",
+            ),
+            (
+                AppStatus::BrokenManifest,
+                "unavailable",
+                "its manifest is damaged",
+            ),
         ] {
             let mut unavailable = app(tree.join("programs/x.exe"));
             unavailable.status = status;
             let error = LaunchSpec::resolve(&unavailable, None, &[tree.join("programs")])
                 .err()
                 .ok_or("expected an error")?;
-            assert_eq!(error.kind(), "not-installed", "{status:?}");
+            assert_eq!(error.kind(), kind, "{status:?}");
+            assert!(error.to_string().contains(wording), "{error}");
+            if kind == "unavailable" {
+                assert!(
+                    !error.to_string().contains("not installed"),
+                    "a damaged app is not 'not installed': {error}"
+                );
+            }
         }
+        // Ready but without a program cannot happen from a scan; it is still refused, not a panic.
+        let mut no_program = app(tree.join("programs/x.exe"));
+        no_program.program = None;
+        let error = LaunchSpec::resolve(&no_program, None, &[tree.join("programs")])
+            .err()
+            .ok_or("expected an error")?;
+        assert_eq!(error.kind(), "unavailable");
         Ok(())
     }
 

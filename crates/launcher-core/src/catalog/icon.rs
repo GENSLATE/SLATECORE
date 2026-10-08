@@ -5,8 +5,8 @@
 //! - portapps.io: the icon embedded in the `.exe` (pure-Rust PE parsing, so it works on any
 //!   host), cached as PNG in the launcher's own `cache/` folder.
 
+// cspell:ignore rposition
 use std::fs;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -72,17 +72,14 @@ fn crop_to_plate(svg: &str) -> String {
 
 fn cached_exe_icon(exe: &Path, cache_dir: &Path) -> Result<IconData, LauncherError> {
     let meta = fs::metadata(exe).map_err(read_error(exe))?;
-    let mut hasher = DefaultHasher::new();
-    exe.hash(&mut hasher);
-    meta.len().hash(&mut hasher);
-    meta.modified()
+    let modified = meta
+        .modified()
         .ok()
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map(|age| age.as_secs())
-        .hash(&mut hasher);
+        .map(|age| age.as_secs());
     let cached = cache_dir
         .join("icons")
-        .join(format!("{:016x}.png", hasher.finish()));
+        .join(cache_file_name(exe, meta.len(), modified));
     if let Ok(bytes) = fs::read(&cached) {
         return Ok(IconData {
             bytes,
@@ -100,6 +97,50 @@ fn cached_exe_icon(exe: &Path, cache_dir: &Path) -> Result<IconData, LauncherErr
         log::debug!("icon cache write failed for {}: {error}", cached.display());
     }
     Ok(data)
+}
+
+/// The cache file for an executable's icon. The key is the exe's path *below* `programs/`
+/// (case-folded, either slash), its size and its modified time: the drive letter changes
+/// between PCs (`S:` to `E:`), and a cache that followed it would extract every icon again on
+/// each new PC. FNV-1a, so the name is the same on every run and every Rust version.
+fn cache_file_name(exe: &Path, len: u64, modified_secs: Option<u64>) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |bytes: &[u8]| {
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    for segment in below_programs(exe) {
+        feed(segment.as_bytes());
+        feed(b"/");
+    }
+    feed(&len.to_le_bytes());
+    feed(&modified_secs.unwrap_or(0).to_le_bytes());
+    format!("{hash:016x}.png")
+}
+
+/// The lower-cased path segments after the last `programs` folder. A path without one loses
+/// only its drive or UNC prefix, so it still does not depend on where the drive is mounted.
+fn below_programs(exe: &Path) -> Vec<String> {
+    let text = exe.to_string_lossy().to_lowercase();
+    let segments: Vec<&str> = text
+        .split(['/', '\\'])
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let start = segments
+        .iter()
+        .rposition(|segment| *segment == "programs")
+        .map_or_else(
+            || usize::from(segments.first().is_some_and(|first| first.ends_with(':'))),
+            |index| index + 1,
+        );
+    segments
+        .get(start..)
+        .unwrap_or_default()
+        .iter()
+        .map(|segment| (*segment).to_owned())
+        .collect()
 }
 
 /// Rebuilds the first icon group of a PE file as `.ico` bytes.
@@ -196,6 +237,71 @@ mod tests {
             .err()
             .ok_or("expected an error")?;
         assert_eq!(error.kind(), "parse");
+        Ok(())
+    }
+
+    #[test]
+    fn the_icon_cache_key_does_not_depend_on_the_drive() {
+        let name = |exe: &str| cache_file_name(Path::new(exe), 1_234, Some(99));
+        let here = name("D:\\Suite\\programs\\portapps.io\\brave\\brave.exe");
+        assert_eq!(
+            here,
+            name("E:\\Other Folder\\programs\\portapps.io\\brave\\brave.exe"),
+            "another drive letter and install folder"
+        );
+        assert_eq!(
+            here,
+            name("/mnt/usb/SLATECORE/PROGRAMS/portapps.io/Brave/brave.exe"),
+            "slash direction and case"
+        );
+        assert_eq!(here.len(), "0123456789abcdef.png".len());
+
+        // A different app, size or timestamp is a different icon.
+        assert_ne!(
+            here,
+            name("D:\\Suite\\programs\\portapps.io\\other\\other.exe")
+        );
+        let resized = cache_file_name(
+            Path::new("D:\\Suite\\programs\\portapps.io\\brave\\brave.exe"),
+            1_235,
+            Some(99),
+        );
+        assert_ne!(here, resized);
+        let touched = cache_file_name(
+            Path::new("D:\\Suite\\programs\\portapps.io\\brave\\brave.exe"),
+            1_234,
+            Some(100),
+        );
+        assert_ne!(here, touched);
+    }
+
+    #[test]
+    fn paths_below_programs_lose_their_root() {
+        assert_eq!(
+            below_programs(Path::new("C:\\a\\programs\\x\\programs\\y.exe")),
+            ["y.exe"],
+            "the last programs folder counts"
+        );
+        assert_eq!(
+            below_programs(Path::new("D:\\tools\\y.exe")),
+            ["tools", "y.exe"],
+            "no programs folder: only the drive goes"
+        );
+        assert_eq!(
+            below_programs(Path::new("/opt/tools/y.exe")),
+            ["opt", "tools", "y.exe"]
+        );
+        assert_eq!(below_programs(Path::new("")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_failed_extraction_leaves_no_cache_entry() -> Result<(), Box<dyn std::error::Error>> {
+        // A non-PE file cannot be extracted, so the lookup must not create a cache entry.
+        let tree = TempTree::new()?.file("programs/portapps.io/x/x.exe", "not a PE file")?;
+        let cache = tree.join("cache");
+        let exe = tree.join("programs/portapps.io/x/x.exe");
+        assert!(load_icon(&IconSource::Executable(exe), &cache).is_err());
+        assert!(!cache.join("icons").exists());
         Ok(())
     }
 

@@ -30,12 +30,13 @@ pub struct VolumeInfo {
 /// The volume whose mount point is the longest prefix of `path`.
 pub fn volume_for(path: &Path) -> Option<VolumeInfo> {
     let disks = Disks::new_with_refreshed_list();
-    let target = comparable(path);
-    disks
+    let mounts: Vec<&Path> = disks
         .list()
         .iter()
-        .filter(|disk| target.starts_with(&comparable(disk.mount_point())))
-        .max_by_key(|disk| disk.mount_point().as_os_str().len())
+        .map(sysinfo::Disk::mount_point)
+        .collect();
+    longest_mount(path, &mounts)
+        .and_then(|index| disks.list().get(index))
         .map(|disk| {
             let mount = disk.mount_point().to_string_lossy();
             let label = if cfg!(windows) {
@@ -52,6 +53,19 @@ pub fn volume_for(path: &Path) -> Option<VolumeInfo> {
                 removable: disk.is_removable(),
             }
         })
+}
+
+/// Index of the mount point that contains `path`, the deepest one when several do. Compared
+/// component by component, so `/mnt/d` does not contain `/mnt/data/x`.
+fn longest_mount(path: &Path, mounts: &[&Path]) -> Option<usize> {
+    let target = PathBuf::from(comparable(path));
+    mounts
+        .iter()
+        .enumerate()
+        .map(|(index, mount)| (index, PathBuf::from(comparable(mount))))
+        .filter(|(_, mount)| target.starts_with(mount))
+        .max_by_key(|(_, mount)| mount.components().count())
+        .map(|(index, _)| index)
 }
 
 fn comparable(path: &Path) -> String {
@@ -211,8 +225,27 @@ impl ProcessProbe {
 
 #[cfg(feature = "nvidia")]
 mod gpu {
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
+
     use nvml_wrapper::Nvml;
     use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
+
+    /// The only place NVML is loaded from. A bare `nvml.dll` would be searched for in the
+    /// current folder and `PATH` as well, so a planted DLL on the drive (or next to a file the
+    /// user double-clicked) would run inside the launcher. The NVIDIA driver installs the real
+    /// one into `System32`.
+    fn system_nvml_path(
+        system_root: Option<&OsStr>,
+        is_file: impl Fn(&Path) -> bool,
+    ) -> Option<PathBuf> {
+        let root = Path::new(system_root?);
+        if !root.is_absolute() {
+            return None;
+        }
+        let library = root.join("System32").join("nvml.dll");
+        is_file(&library).then_some(library)
+    }
 
     /// NVML loaded at runtime (absent drivers = no GPU readout).
     pub(super) struct Gpu(Nvml);
@@ -230,18 +263,19 @@ mod gpu {
     }
 
     impl Gpu {
-        /// Loads `nvml.dll` from the driver. `None` when there is no NVIDIA driver (or it
-        /// cannot be loaded): that is normal, not an error.
+        /// Loads `%SystemRoot%\System32\nvml.dll` and nothing else. `None` when there is no
+        /// NVIDIA driver (or it cannot be loaded): that is normal, not an error.
         pub(super) fn open() -> Option<Self> {
-            Nvml::init()
-                .inspect_err(|error| log::debug!("NVML unavailable: {error}"))
-                .ok()
-                .map(Self)
+            let system_root = std::env::var_os("SystemRoot");
+            let Some(library) = system_nvml_path(system_root.as_deref(), Path::is_file) else {
+                log::debug!("NVML unavailable: no nvml.dll in the system folder");
+                return None;
+            };
+            Self::open_library(library.as_os_str())
         }
 
-        /// Like [`Gpu::open`] with an explicit library name or path.
-        #[cfg(test)]
-        pub(super) fn open_library(library: &std::ffi::OsStr) -> Option<Self> {
+        /// Loads the NVML library at `library`.
+        pub(super) fn open_library(library: &OsStr) -> Option<Self> {
             let mut builder = Nvml::builder();
             builder.lib_path(library);
             builder
@@ -266,6 +300,50 @@ mod gpu {
                     .map(|t| t as f32),
                 usage: device.utilization_rates().ok().map(|u| u.gpu as f32),
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use genslate_testing::TempTree;
+
+        #[test]
+        fn nvml_is_only_ever_taken_from_the_system_folder() -> std::io::Result<()> {
+            let tree = TempTree::new()?
+                .file("Windows/System32/nvml.dll", "")?
+                .dir("NoDriver/System32")?
+                .dir("DirAsDll/System32/nvml.dll")?;
+            let root = tree.join("Windows");
+            assert_eq!(
+                system_nvml_path(Some(root.as_os_str()), Path::is_file),
+                Some(root.join("System32").join("nvml.dll"))
+            );
+            for missing in ["NoDriver", "DirAsDll", "Nowhere"] {
+                let root = tree.join(missing);
+                assert_eq!(
+                    system_nvml_path(Some(root.as_os_str()), Path::is_file),
+                    None,
+                    "{missing}"
+                );
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn nvml_path_never_depends_on_the_search_path_or_a_relative_root() {
+            // No SystemRoot, an empty one or a relative one: no library, even if every file
+            // "exists". There is no fall back to a bare `nvml.dll`.
+            for root in [None, Some(OsStr::new("")), Some(OsStr::new("Windows"))] {
+                assert_eq!(system_nvml_path(root, |_| true), None, "{root:?}");
+            }
+            let found = system_nvml_path(Some(std::env::temp_dir().as_os_str()), |_| true);
+            assert!(
+                found.as_deref().is_some_and(
+                    |library| library.is_absolute() && library.ends_with("System32/nvml.dll")
+                ),
+                "{found:?}"
+            );
         }
     }
 }
@@ -308,12 +386,54 @@ mod tests {
     #[test]
     fn finds_the_volume_holding_a_folder() -> std::io::Result<()> {
         let here = tempfile::tempdir()?;
-        let volume = volume_for(here.path());
+        let folder = dunce::canonicalize(here.path())?;
+        let volume = volume_for(&folder);
+        assert!(volume.is_some(), "no volume holds {folder:?}");
         if let Some(volume) = volume {
             assert!(volume.total_bytes >= volume.available_bytes);
             assert_ne!(volume.label, "");
         }
         Ok(())
+    }
+
+    #[test]
+    fn a_mount_point_must_contain_the_folder_component_by_component() {
+        let root = Path::new("/");
+        let d = Path::new("/mnt/d");
+        let data = Path::new("/mnt/data");
+        let deep = Path::new("/mnt/d/games");
+        let mounts = [root, d, data, deep];
+
+        // `/mnt/d` is a string prefix of `/mnt/data/x` but not a parent of it.
+        assert_eq!(longest_mount(Path::new("/mnt/data/x"), &mounts), Some(2));
+        assert_eq!(longest_mount(Path::new("/mnt/d/x"), &mounts), Some(1));
+        assert_eq!(longest_mount(Path::new("/mnt/d/games/a"), &mounts), Some(3));
+        assert_eq!(longest_mount(Path::new("/mnt/d"), &mounts), Some(1));
+        assert_eq!(longest_mount(Path::new("/home/me"), &mounts), Some(0));
+        // Nothing contains it.
+        assert_eq!(
+            longest_mount(Path::new("/mnt/dd/x"), &[d, data, deep]),
+            None
+        );
+        assert_eq!(longest_mount(Path::new("/mnt/d"), &[]), None);
+    }
+
+    #[test]
+    fn windows_style_mounts_ignore_case_and_slash_direction() {
+        // On Windows the comparison is case-insensitive; elsewhere only the separators are
+        // normalized, so the drive-letter casing below is the same on both.
+        let c = Path::new("C:\\");
+        let d = Path::new("D:\\");
+        let games = Path::new("D:\\Games");
+        let mounts = [c, d, games];
+        assert_eq!(
+            longest_mount(Path::new("D:\\Games\\Quake"), &mounts),
+            Some(2)
+        );
+        assert_eq!(
+            longest_mount(Path::new("D:/Games2/Quake"), &mounts),
+            Some(1)
+        );
     }
 
     #[test]

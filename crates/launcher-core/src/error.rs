@@ -32,15 +32,21 @@ pub enum LauncherError {
         /// What is wrong, with a line number when the parser knows it.
         message: String,
     },
-    /// Settings could not be turned into TOML.
-    #[error("could not encode settings: {0}")]
-    Serialize(String),
     /// No app has this id.
     #[error("there is no app {0:?}")]
     UnknownApp(String),
-    /// The app is known but cannot be started (missing, broken or not installed).
+    /// The app is known (metadata, reserved name) but its folder is not in `programs/`.
     #[error("{0} is not installed")]
     NotInstalled(String),
+    /// The app is listed but cannot be started: its program is missing or its manifest is
+    /// damaged. It shows in the "Unavailable" group.
+    #[error("{app} cannot be started: {reason}")]
+    Unavailable {
+        /// The app's display name.
+        app: String,
+        /// Why, in a few words.
+        reason: &'static str,
+    },
     /// A program to launch resolves outside `programs/`.
     #[error("{0} is not inside an allowed programs folder")]
     OutsideRoot(PathBuf),
@@ -76,9 +82,9 @@ impl LauncherError {
             Self::Read { .. } => "read",
             Self::Write { .. } => "write",
             Self::Parse { .. } => "parse",
-            Self::Serialize(_) => "serialize",
             Self::UnknownApp(_) => "unknown-app",
             Self::NotInstalled(_) => "not-installed",
+            Self::Unavailable { .. } => "unavailable",
             Self::OutsideRoot(_) => "outside-root",
             Self::Spawn { .. } => "spawn",
             Self::UnknownAction(_) => "unknown-action",

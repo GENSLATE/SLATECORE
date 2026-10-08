@@ -4,11 +4,11 @@
 
 use std::fs;
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use super::genslate::list;
+use super::genslate::{has_files, is_relative_inside, list};
 use super::icon::IconSource;
 use super::model::{AppEntry, AppId, AppStatus, Source};
 
@@ -33,14 +33,16 @@ pub fn scan(dir: &Path) -> Vec<AppEntry> {
         .collect()
 }
 
-/// `None` for a folder without a `portapp.json` (not an app). A manifest that cannot be read
-/// or parsed gives a [`AppStatus::BrokenManifest`] entry, a valid one without its program a
-/// [`AppStatus::MissingExe`] entry.
+/// A manifest that cannot be read or parsed gives a [`AppStatus::BrokenManifest`] entry, a
+/// valid one without its program a [`AppStatus::MissingExe`] entry. A folder without a
+/// manifest is handled by [`without_manifest`]; only an empty or hidden folder gives `None`.
 fn entry(package: &Path) -> Option<AppEntry> {
     let folder = package.file_name()?.to_str()?;
     let bytes = match fs::read(package.join("portapp.json")) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return without_manifest(package, folder);
+        }
         Err(error) => {
             log::warn!("{}: {error}; listing it as unavailable", package.display());
             return Some(unavailable(package, folder, AppStatus::BrokenManifest));
@@ -75,6 +77,43 @@ fn entry(package: &Path) -> Option<AppEntry> {
     Some(app)
 }
 
+/// A folder in `programs/portapps.io/` without a `portapp.json`: still shown, because the user
+/// put it there. It is a normal app when its program can be told apart (`<folder>.exe`, the
+/// only `*-portable.exe`, or the only `.exe`), else it goes to "Unavailable". Empty folders
+/// (a `.gitkeep` does not count) and hidden ones (`.git`) are not apps and give `None`.
+fn without_manifest(package: &Path, folder: &str) -> Option<AppEntry> {
+    if folder.starts_with('.') || !has_files(package) {
+        return None;
+    }
+    let Some(exe) = exe_for(package, folder, "").or_else(|| only_exe(package)) else {
+        log::warn!(
+            "{}: no portapp.json and no program to tell apart; listing it as unavailable",
+            package.display()
+        );
+        return Some(unavailable(package, folder, AppStatus::BrokenManifest));
+    };
+    let mut app = AppEntry::new(AppId::new(Source::Portapps, folder), display_name(folder));
+    CATEGORY.clone_into(&mut app.category);
+    app.description = format!("{} (portapps.io)", app.name);
+    app.dir = Some(package.to_path_buf());
+    app.icon = Some(IconSource::Executable(exe.clone()));
+    app.has_icon = true;
+    app.program = Some(exe);
+    Some(app)
+}
+
+/// The only `.exe` directly in `package`, if there is exactly one.
+fn only_exe(package: &Path) -> Option<PathBuf> {
+    let mut exes = list(package).into_iter().filter(|path| {
+        path.is_file()
+            && path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+    });
+    let first = exes.next();
+    exes.next().is_none().then_some(first).flatten()
+}
+
 /// `portapp.json` must be a JSON object whose known keys have the right types.
 fn parse_manifest(bytes: &[u8]) -> Option<PortappJson> {
     let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
@@ -98,9 +137,8 @@ fn display_name(folder: &str) -> String {
 }
 
 /// `<id>.exe`, else `<folder>.exe`, else the only `*-portable.exe` in the folder.
-fn exe_for(package: &Path, folder: &str, id: &str) -> Option<std::path::PathBuf> {
-    let valid_id = !id.is_empty() && !id.contains(['/', '\\', '.']);
-    let named = valid_id
+fn exe_for(package: &Path, folder: &str, id: &str) -> Option<PathBuf> {
+    let named = valid_id(id)
         .then(|| package.join(format!("{id}.exe")))
         .into_iter()
         .chain([package.join(format!("{folder}.exe"))])
@@ -116,6 +154,12 @@ fn exe_for(package: &Path, folder: &str, id: &str) -> Option<std::path::PathBuf>
         let first = candidates.next();
         candidates.next().is_none().then_some(first).flatten()
     })
+}
+
+/// An `id` from the manifest becomes a file name, so it must be one plain name: no separators,
+/// dots, drive letters (`C:x` is drive-relative on Windows) or other path syntax.
+fn valid_id(id: &str) -> bool {
+    !id.contains(['/', '\\', '.']) && is_relative_inside(id)
 }
 
 fn non_empty(value: String) -> Option<String> {
@@ -180,8 +224,8 @@ mod tests {
         assert_eq!(status("brave-portable"), Some(AppStatus::Ready));
         assert_eq!(
             status("stray"),
-            None,
-            "folders without a manifest are not apps"
+            Some(AppStatus::BrokenManifest),
+            "a folder with files but no manifest and no program is unavailable, not dropped"
         );
         assert!(
             apps.iter()
@@ -189,6 +233,88 @@ mod tests {
                 .all(|a| a.program.is_none()),
             "a broken app is never launchable"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn folders_without_a_manifest_fall_back_to_their_program_or_go_to_unavailable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let tree = TempTree::new()?
+            .file("named-portable/named-portable.exe", "")?
+            .file("suffix/tool-portable.exe", "")?
+            .file("suffix/unins000.exe", "")?
+            .file("lone/Setup.exe", "")?
+            .file("lone/readme.txt", "")?
+            .file("two/a.exe", "")?
+            .file("two/b.exe", "")?
+            .file("stray/readme.txt", "")?
+            .file("empty/.gitkeep", "")?
+            .file(".git/config", "")?
+            .file(".hidden-portable/hidden-portable.exe", "")?;
+        let apps = scan(tree.path());
+        let found: Vec<(&str, AppStatus)> =
+            apps.iter().map(|a| (a.id.key.as_str(), a.status)).collect();
+        assert_eq!(
+            found,
+            [
+                ("lone", AppStatus::Ready),
+                ("named-portable", AppStatus::Ready),
+                ("stray", AppStatus::BrokenManifest),
+                ("suffix", AppStatus::Ready),
+                ("two", AppStatus::BrokenManifest),
+            ],
+            "empty and hidden folders are skipped, the rest is listed"
+        );
+        let program = |key: &str| {
+            apps.iter()
+                .find(|a| a.id.key == key)
+                .and_then(|a| a.program.clone())
+        };
+        assert!(program("lone").is_some_and(|p| p.ends_with("Setup.exe")));
+        assert!(program("suffix").is_some_and(|p| p.ends_with("tool-portable.exe")));
+        assert!(program("named-portable").is_some());
+        assert_eq!(program("two"), None, "two programs: it is not guessed");
+        assert_eq!(program("stray"), None);
+        let named = apps
+            .iter()
+            .find(|a| a.id.key == "named-portable")
+            .ok_or("named")?;
+        assert_eq!(named.name, "named");
+        assert!(named.has_icon && matches!(named.icon, Some(IconSource::Executable(_))));
+        Ok(())
+    }
+
+    #[test]
+    fn manifest_ids_are_single_plain_names() {
+        assert!(valid_id("brave-portable"));
+        assert!(valid_id("7zip"));
+        for bad in [
+            "",
+            "a/b",
+            "a\\b",
+            "a.b",
+            "..",
+            "C:evil",
+            "C:\\evil",
+            "a:b",
+            "\\\\srv\\x",
+        ] {
+            assert!(!valid_id(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_manifest_id_with_a_drive_never_selects_a_program() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let tree = TempTree::new()?
+            .file("x-portable/portapp.json", r#"{"id":"C:evil"}"#)?
+            .file("x-portable/x-portable.exe", "")?;
+        let apps = scan(tree.path());
+        let program = apps
+            .first()
+            .and_then(|a| a.program.clone())
+            .ok_or("program")?;
+        assert!(program.ends_with("x-portable.exe"), "{program:?}");
         Ok(())
     }
 }

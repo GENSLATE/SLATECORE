@@ -82,8 +82,8 @@ pub fn frame_rect(window: Rect, scale: f64, expanded: bool) -> Rect {
     } else {
         NORMAL_FRAME_WIDTH
     };
-    let width = to_px(wanted * scale).min(window.width.saturating_sub(2 * inset));
-    let height = window.height.saturating_sub(2 * inset);
+    let width = to_px(wanted * scale).min(window.width.saturating_sub(inset.saturating_mul(2)));
+    let height = window.height.saturating_sub(inset.saturating_mul(2));
     let right = i64::from(window.x) + i64::from(window.width) - i64::from(inset);
     Rect {
         x: saturate(right - i64::from(width)),
@@ -121,8 +121,14 @@ pub fn anchor_bottom_right(work_area: Rect, scale: f64, logical: (f64, f64), mar
         1.0
     };
     let margin_px = to_px(margin * scale);
-    let max_width = work_area.width.saturating_sub(2 * margin_px).max(1);
-    let max_height = work_area.height.saturating_sub(2 * margin_px).max(1);
+    let max_width = work_area
+        .width
+        .saturating_sub(margin_px.saturating_mul(2))
+        .max(1);
+    let max_height = work_area
+        .height
+        .saturating_sub(margin_px.saturating_mul(2))
+        .max(1);
     let width = to_px(logical.0 * scale).clamp(1, max_width);
     let height = to_px(logical.1 * scale).clamp(1, max_height);
     let right = i64::from(work_area.x) + i64::from(work_area.width) - i64::from(margin_px);
@@ -501,5 +507,58 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn absurd_scales_and_margins_never_overflow() {
+        // The release profile keeps overflow checks on, so a wrapped `2 * px` would abort.
+        let work = Rect {
+            x: -1000,
+            y: 50,
+            width: 1920,
+            height: 1040,
+        };
+        let window = Rect {
+            x: 10,
+            y: 10,
+            width: 952,
+            height: 672,
+        };
+        let monitor = Rect {
+            x: -1000,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let scales = [1e9, 1e300, f64::MAX, f64::INFINITY, f64::NAN, -1.0, 0.0];
+        let margins = [
+            0.0,
+            12.0,
+            1e9,
+            1e300,
+            f64::MAX,
+            f64::INFINITY,
+            f64::NAN,
+            -5.0,
+        ];
+        for scale in scales {
+            for margin in margins {
+                let rect = anchor_bottom_right(work, scale, window_size(SizePreset::L), margin);
+                assert!((1..=work.width).contains(&rect.width), "{scale} {margin}");
+                assert!((1..=work.height).contains(&rect.height), "{scale} {margin}");
+            }
+            for expanded in [false, true] {
+                let frame = frame_rect(window, scale, expanded);
+                assert!(frame.width <= window.width && frame.height <= window.height);
+            }
+            let tray = tray_menu_placement((0.0, 0.0), monitor, work, scale, TRAY_MENU_SIZE);
+            assert!(tray.window.width >= 1 && tray.window.height >= 1);
+        }
+    }
+
+    #[test]
+    fn huge_margin_leaves_a_one_pixel_window_instead_of_overflowing() {
+        let rect = anchor_bottom_right(FULL_HD, 1.0, (460.0, 660.0), 1e12);
+        assert_eq!((rect.width, rect.height), (1, 1));
     }
 }

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use genslate_paths::AppPaths;
 use serde::{Deserialize, Serialize};
-use toml_edit::{Array, DocumentMut, Item, Table, value};
+use toml_edit::{Array, DocumentMut, Item, Table, Value};
 
 use crate::LauncherError;
 use crate::catalog::Source;
@@ -75,7 +75,8 @@ impl AppMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct TabSettings {
-    /// Show the tab (it is still hidden while its folder has no apps).
+    /// Show the tab. A tab whose folder has no apps is shown too, with a count of zero; only
+    /// `false` hides it. GENSLATE's tab cannot be turned off.
     pub enabled: bool,
     /// Tab position; lower comes first.
     pub order: Option<u32>,
@@ -167,7 +168,7 @@ pub fn write_override(
     if let Some(args) = &change.args {
         match args {
             Some(args) if !args.is_empty() => {
-                entry.insert("args", value(args.iter().collect::<Array>()));
+                set_value(entry, "args", Value::Array(args.iter().collect::<Array>()));
             }
             _ => {
                 entry.remove("args");
@@ -187,7 +188,7 @@ pub fn write_value(
     path: &Path,
     table: &str,
     key: &str,
-    new: toml_edit::Value,
+    new: Value,
 ) -> Result<String, LauncherError> {
     let mut doc = read_document(path)?;
     let section = doc
@@ -195,17 +196,7 @@ pub fn write_value(
         .or_insert_with(|| Item::Table(Table::new()))
         .as_table_mut()
         .ok_or_else(|| parse_error(path, &format!("`{table}` must be a table")))?;
-    // Keep the decor (trailing comments) of an existing value.
-    match section.get_mut(key).and_then(Item::as_value_mut) {
-        Some(existing) => {
-            let decor = existing.decor().clone();
-            *existing = new;
-            *existing.decor_mut() = decor;
-        }
-        None => {
-            section.insert(key, Item::Value(new));
-        }
-    }
+    set_value(section, key, new);
     let text = doc.to_string();
     write_atomic(path, &text)?;
     Ok(text)
@@ -232,11 +223,39 @@ fn read_document(path: &Path) -> Result<DocumentMut, LauncherError> {
         .map_err(|error| parse_error(path, error.message()))
 }
 
+/// Sets `key` to `new` and keeps the comments around an existing value. A value that is
+/// already equal is not touched at all, so re-setting it never costs a comment.
+fn set_value(table: &mut Table, key: &str, new: Value) {
+    match table.get_mut(key).and_then(Item::as_value_mut) {
+        Some(existing) if same_value(existing, &new) => {}
+        Some(existing) => {
+            let decor = existing.decor().clone();
+            *existing = new;
+            *existing.decor_mut() = decor;
+        }
+        None => {
+            table.insert(key, Item::Value(new));
+        }
+    }
+}
+
+/// Whether two values mean the same, whatever their spacing and comments.
+fn same_value(a: &Value, b: &Value) -> bool {
+    if let (Some(a), Some(b)) = (a.as_bool(), b.as_bool()) {
+        return a == b;
+    }
+    if let (Some(a), Some(b)) = (a.as_str(), b.as_str()) {
+        return a == b;
+    }
+    if let (Some(a), Some(b)) = (a.as_array(), b.as_array()) {
+        return a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_value(a, b));
+    }
+    false
+}
+
 fn set_flag(table: &mut Table, key: &str, flag: Option<bool>) {
     match flag {
-        Some(true) => {
-            table.insert(key, value(true));
-        }
+        Some(true) => set_value(table, key, Value::from(true)),
         Some(false) => {
             table.remove(key);
         }
@@ -247,7 +266,7 @@ fn set_flag(table: &mut Table, key: &str, flag: Option<bool>) {
 fn set_text(table: &mut Table, key: &str, text: Option<&Option<String>>) {
     match text {
         Some(Some(text)) if !text.trim().is_empty() => {
-            table.insert(key, value(text.trim()));
+            set_value(table, key, Value::from(text.trim()));
         }
         Some(_) => {
             table.remove(key);
@@ -375,5 +394,50 @@ mod tests {
             let settings = crate::config::Settings::load(&seed);
             assert_eq!(settings.issue, None);
         }
+    }
+
+    #[test]
+    fn setting_a_value_again_keeps_its_trailing_comment() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let original = "[apps.explorer]\nfavorite = true # my favourite\nname = \"Files\" # shown name\nargs = [\"--new\"] # extra\n";
+        let tree = TempTree::new()?.file("genslate.toml", original)?;
+        let same = OverridePatch {
+            favorite: Some(true),
+            name: Some(Some("Files".to_owned())),
+            args: Some(Some(vec!["--new".to_owned()])),
+            ..OverridePatch::default()
+        };
+        let text = write_override(tree.path(), Source::Genslate, "explorer", &same)?;
+        assert_eq!(text, original, "equal values are left exactly as they were");
+
+        // A different value replaces the value only: the comment stays.
+        let changed = OverridePatch {
+            name: Some(Some("Documents".to_owned())),
+            args: Some(Some(vec!["--old".to_owned()])),
+            ..OverridePatch::default()
+        };
+        let text = write_override(tree.path(), Source::Genslate, "explorer", &changed)?;
+        assert!(text.contains("favorite = true # my favourite"), "{text}");
+        assert!(text.contains("name = \"Documents\" # shown name"), "{text}");
+        assert!(text.contains("# extra"), "{text}");
+        let tab = TabSettings::load(&tree.join("genslate.toml"))?;
+        let explorer = tab.apps.get("explorer").ok_or("explorer")?;
+        assert_eq!(explorer.name.as_deref(), Some("Documents"));
+        assert_eq!(explorer.args.as_deref(), Some(&["--old".to_owned()][..]));
+        Ok(())
+    }
+
+    #[test]
+    fn write_value_leaves_an_equal_value_alone() -> Result<(), Box<dyn std::error::Error>> {
+        let original = "[appearance]\ntheme = \"system\"   # keep my spacing\n";
+        let tree = TempTree::new()?.file("settings.toml", original)?;
+        let text = write_value(
+            &tree.join("settings.toml"),
+            "appearance",
+            "theme",
+            "system".into(),
+        )?;
+        assert_eq!(text, original);
+        Ok(())
     }
 }

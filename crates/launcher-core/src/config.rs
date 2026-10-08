@@ -93,7 +93,7 @@ impl Default for Behavior {
     rename_all(serialize = "camelCase", deserialize = "kebab-case")
 )]
 pub struct StatusConfig {
-    /// What the right side of the status bar shows first.
+    /// What the right side of the status bar shows first (default: usage).
     pub mode: StatusMode,
 }
 
@@ -159,14 +159,15 @@ pub enum SizePreset {
     L,
 }
 
-/// `"temps" | "usage"`
+/// `"temps" | "usage"`. Usage is the default because Windows only exposes temperatures to
+/// administrators, so on most PCs the temperature readout would be empty.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StatusMode {
     /// Temperatures first.
-    #[default]
     Temps,
-    /// Usage first.
+    /// CPU and GPU usage first.
+    #[default]
     Usage,
 }
 
@@ -269,22 +270,12 @@ impl LauncherConfig {
     pub fn load(path: &Path) -> Result<Self, LauncherError> {
         load_toml(path)
     }
-
-    /// The config as `settings.toml` text (kebab-case keys, readable by [`LauncherConfig::load`]).
-    pub fn to_toml(&self) -> Result<String, LauncherError> {
-        to_kebab_toml(self)
-    }
 }
 
 impl Keybindings {
     /// Reads `path`; a missing or empty file is the default keybindings.
     pub fn load(path: &Path) -> Result<Self, LauncherError> {
         load_toml(path)
-    }
-
-    /// The keybindings as `keybindings.toml` text.
-    pub fn to_toml(&self) -> Result<String, LauncherError> {
-        to_kebab_toml(self)
     }
 }
 
@@ -341,7 +332,7 @@ impl Settings {
 }
 
 /// One line for the UI: the file's name (not its folder) and what is wrong with it.
-fn issue_text(error: &LauncherError) -> String {
+pub(crate) fn issue_text(error: &LauncherError) -> String {
     let name = |path: &Path| {
         path.file_name()
             .unwrap_or(path.as_os_str())
@@ -380,45 +371,10 @@ fn describe(text: &str, error: &toml::de::Error) -> String {
     }
 }
 
-/// Serialises `value` (camelCase for the UI) as TOML with kebab-case keys.
-fn to_kebab_toml<T: Serialize>(value: &T) -> Result<String, LauncherError> {
-    let value = toml::Value::try_from(value)
-        .map_err(|error| LauncherError::Serialize(error.to_string()))?;
-    toml::to_string(&kebab_keys(value)).map_err(|error| LauncherError::Serialize(error.to_string()))
-}
-
-fn kebab_keys(value: toml::Value) -> toml::Value {
-    match value {
-        toml::Value::Table(table) => toml::Value::Table(
-            table
-                .into_iter()
-                .map(|(key, value)| (kebab_case(&key), kebab_keys(value)))
-                .collect(),
-        ),
-        toml::Value::Array(items) => {
-            toml::Value::Array(items.into_iter().map(kebab_keys).collect())
-        }
-        other => other,
-    }
-}
-
-/// `hideOnBlur` → `hide-on-blur`.
-fn kebab_case(camel: &str) -> String {
-    let mut out = String::with_capacity(camel.len() + 4);
-    for character in camel.chars() {
-        if character.is_ascii_uppercase() {
-            out.push('-');
-            out.push(character.to_ascii_lowercase());
-        } else {
-            out.push(character);
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata::write_value;
     use genslate_testing::TempTree;
 
     #[test]
@@ -483,26 +439,42 @@ mod tests {
 
     #[test]
     fn settings_roundtrip_has_no_autostart_key() -> TestResult {
-        let mut config = LauncherConfig::default();
-        let json = serde_json::to_string(&config)?;
+        // What the UI receives has no such key ...
+        let json = serde_json::to_string(&Settings::default())?;
         assert!(!json.contains("autostart"), "{json}");
 
-        config.appearance.theme = ThemePreference::PolarNight;
-        config.appearance.size = SizePreset::L;
-        config.behavior.pinned = true;
-        for config in [LauncherConfig::default(), config] {
-            let text = config.to_toml()?;
-            assert!(!text.contains("autostart"), "{text}");
-            let tree = TempTree::new()?.file("settings.toml", text.as_str())?;
-            assert_eq!(LauncherConfig::load(&tree.join("settings.toml"))?, config);
-        }
+        // ... and neither has what the launcher writes: save settings, read them back.
+        let tree = TempTree::new()?;
+        let file = tree.join(SETTINGS_FILE);
+        write_value(&file, "appearance", "theme", "polar-night".into())?;
+        write_value(&file, "appearance", "size", "l".into())?;
+        write_value(&file, "behavior", "pinned", true.into())?;
+        let text = fs::read_to_string(&file)?;
+        assert!(!text.contains("autostart"), "{text}");
+        let settings = Settings::load(tree.path());
+        assert_eq!(settings.issue, None);
+        assert_eq!(
+            settings.config.appearance.theme,
+            ThemePreference::PolarNight
+        );
+        assert_eq!(settings.config.appearance.size, SizePreset::L);
+        assert!(settings.config.behavior.pinned);
+        assert_eq!(
+            Settings::load(tree.path()).config,
+            settings.config,
+            "reading twice gives the same settings"
+        );
 
-        // A file that still carries SlateSuite's key is reported, not silently accepted.
+        // An old settings.toml that still has the key is reported, not silently accepted.
         let old = TempTree::new()?.file("settings.toml", "[behavior]\nautostart = true\n")?;
         let error = LauncherConfig::load(&old.join("settings.toml"))
             .err()
             .ok_or("expected an error")?;
         assert_eq!(error.kind(), "parse");
+        let settings = Settings::load(old.path());
+        assert_eq!(settings.config, LauncherConfig::default());
+        let issue = settings.issue.ok_or("an issue")?;
+        assert!(issue.contains("autostart"), "{issue}");
         Ok(())
     }
 
@@ -629,14 +601,32 @@ mod tests {
     }
 
     #[test]
-    fn keybindings_roundtrip_through_toml() -> TestResult {
-        let mut keys = Keybindings::default();
-        keys.global.toggle = "Ctrl+Shift+L".to_owned();
-        keys.launcher.tab_portableapps = String::new();
-        let text = keys.to_toml()?;
-        assert!(text.contains("tab-portableapps"), "{text}");
-        let tree = TempTree::new()?.file("keybindings.toml", text.as_str())?;
-        assert_eq!(Keybindings::load(&tree.join("keybindings.toml"))?, keys);
+    fn keybindings_written_by_the_launcher_load_again() -> TestResult {
+        let tree = TempTree::new()?;
+        let file = tree.join(KEYBINDINGS_FILE);
+        write_value(&file, "global", "toggle", "Ctrl+Shift+L".into())?;
+        write_value(&file, "launcher", "tab-portableapps", "".into())?;
+        let settings = Settings::load(tree.path());
+        assert_eq!(settings.issue, None);
+        assert_eq!(settings.keybindings.global.toggle, "Ctrl+Shift+L");
+        assert_eq!(settings.keybindings.launcher.tab_portableapps, "");
+        assert_eq!(settings.keybindings.launcher.tab_portapps, "mod+2");
+        Ok(())
+    }
+
+    #[test]
+    fn the_status_bar_shows_usage_first_unless_told_otherwise() -> TestResult {
+        assert_eq!(StatusMode::default(), StatusMode::Usage);
+        assert_eq!(LauncherConfig::default().status.mode, StatusMode::Usage);
+        let json = serde_json::to_value(LauncherConfig::default())?;
+        assert_eq!(json["status"]["mode"], "usage");
+        let tree = TempTree::new()?.file("settings.toml", "[status]\nmode = \"temps\"\n")?;
+        assert_eq!(
+            LauncherConfig::load(&tree.join("settings.toml"))?
+                .status
+                .mode,
+            StatusMode::Temps
+        );
         Ok(())
     }
 }
