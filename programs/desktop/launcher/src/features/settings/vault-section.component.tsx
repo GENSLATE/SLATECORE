@@ -22,7 +22,11 @@ import { useLauncher } from '../../app/launcher.context';
 import { isVaultError } from '../../ipc/launcher.parse';
 import { PREVIEW_VAULT_PASSWORD } from '../../ipc/launcher.preview';
 import type { EntryDto, VaultStatusDto } from '../../ipc/launcher.types';
-import { VAULT_PASSWORD_MAX_BYTES, vaultPasswordProblem } from '../../ipc/vault-password.util';
+import {
+  VAULT_PASSWORD_MAX_BYTES,
+  VAULT_PASSWORD_MIN_BYTES,
+  vaultPasswordProblem,
+} from '../../ipc/vault-password.util';
 import { formatBytes } from '../status/format.util';
 import { SettingsGroup } from './settings-row.component';
 import { errorMessage, useReport } from './use-report.hook';
@@ -36,17 +40,21 @@ export function vaultMessage(error: unknown): string {
     case 'THROTTLED':
       return `Too many wrong passwords. Try again in ${Math.ceil((error.retryAfterMs ?? 30_000) / 1000)} s.`;
     case 'PASSWORD_REJECTED':
-      return 'Use at least 8 characters and no more than 1024 bytes.';
+      return `Use ${VAULT_PASSWORD_MIN_BYTES} to ${VAULT_PASSWORD_MAX_BYTES} bytes.`;
     default:
       return error.message;
   }
 }
 
-/** What the password rule says about a new password, in words (`undefined`: it is fine). */
+/**
+ * What the password rule says about a new password, in words (`undefined`: it is fine). The
+ * rule counts UTF-8 bytes after NFKC, so the copy says bytes: a plain letter is one, an accented
+ * letter two, many symbols three or four.
+ */
 function newPasswordMessage(password: string): string | undefined {
   switch (vaultPasswordProblem(password)) {
     case 'too-short':
-      return 'Use at least 8 characters.';
+      return `Too short: use at least ${VAULT_PASSWORD_MIN_BYTES} bytes.`;
     case 'too-long':
       return `Too long: use at most ${VAULT_PASSWORD_MAX_BYTES} bytes.`;
     case null:
@@ -187,7 +195,7 @@ function CreateVault() {
         <PasswordField
           ref={passwordRef}
           label="New vault password"
-          description="At least 8 characters. A short sentence is easy to remember."
+          description={`At least ${VAULT_PASSWORD_MIN_BYTES} bytes (a plain letter is one). A short sentence is easy to remember.`}
           error={error?.field === 'password' ? error.message : undefined}
           onInput={() => clearError('password')}
         />

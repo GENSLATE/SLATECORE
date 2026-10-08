@@ -71,7 +71,7 @@ export function TrayAppsSubmenu({ label, icon, apps, empty, run }: TrayAppsSubme
 
 /** The portable folders (`storage/users/shared/*`) and the storage root. */
 export function TrayFoldersSubmenu({ run }: { readonly run: TrayRun }) {
-  const open = (folder: SharedFolder) => run('folder', { folder });
+  const open = (folder: SharedFolder) => run('folder', { name: folder });
   return (
     <MenuSubmenuRoot>
       <MenuSubmenuTrigger icon="codicon:folder">Folders</MenuSubmenuTrigger>
@@ -144,13 +144,13 @@ export function TraySettingsSubmenu({ run }: { readonly run: TrayRun }) {
           Open Settings…
         </MenuItem>
         <MenuSeparator />
-        <MenuItem icon="codicon:go-to-file" onClick={() => run('config', { file: 'settings' })}>
+        <MenuItem icon="codicon:go-to-file" onClick={() => run('config')}>
           Edit settings.toml
         </MenuItem>
-        <MenuItem icon="codicon:record-keys" onClick={() => run('config', { file: 'keybindings' })}>
+        <MenuItem icon="codicon:record-keys" onClick={() => run('keys')}>
           Edit keybindings.toml
         </MenuItem>
-        <MenuItem icon="codicon:output" onClick={() => run('config', { file: 'logs' })}>
+        <MenuItem icon="codicon:output" onClick={() => run('logs')}>
           Open Logs
         </MenuItem>
         <MenuSeparator />

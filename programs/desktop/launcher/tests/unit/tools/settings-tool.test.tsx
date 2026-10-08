@@ -265,8 +265,10 @@ describe('Settings tool', () => {
     // Seven ASCII bytes: too short.
     await user.type(password, 'abcdefg');
     await user.type(repeat, 'abcdefg{Enter}');
-    expect(await panel.findByText(/at least 8/i)).toBeInTheDocument();
-    expect(password).toHaveAccessibleDescription(/at least 8/i);
+    // The copy names the unit the rule counts: bytes, not characters.
+    expect(await panel.findByText(/at least 8 bytes/i)).toBeInTheDocument();
+    expect(password).toHaveAccessibleDescription(/at least 8 bytes/i);
+    expect(settings()).not.toHaveTextContent(/characters/i);
     expect(backend.vaultCreate).not.toHaveBeenCalled();
     // Four accented letters are eight bytes: long enough, though only four characters.
     await user.clear(password);

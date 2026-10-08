@@ -1,1 +1,35 @@
-{}
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SLATECORE LAUNCHER",
+  "mainBinaryName": "slatecore-launcher",
+  "version": "../package.json",
+  "identifier": "xyz.genslate.slatecore.launcher",
+  "build": {
+    "beforeDevCommand": "bun run dev:web",
+    "beforeBuildCommand": "bun run build:web",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: launcher-icon: http://launcher-icon.localhost; font-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: launcher-icon: http://launcher-icon.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1421",
+      "freezePrototype": true,
+      "capabilities": ["main", "tray-menu"]
+    }
+  },
+  "bundle": {
+    "active": false,
+    "category": "Utility",
+    "shortDescription": "The portable app launcher of the SLATECORE suite.",
+    "longDescription": "SLATECORE LAUNCHER by GENSLATE is a portable app launcher: GENSLATE apps, PortableApps.com and portapps.io apps and your portable folders, one keystroke away in the corner of your screen.",
+    "publisher": "GENSLATE",
+    "copyright": "© GENSLATE. All rights reserved.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "windows": {
+      "webviewInstallMode": { "type": "skip" }
+    }
+  }
+}

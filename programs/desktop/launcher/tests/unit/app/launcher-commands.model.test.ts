@@ -36,7 +36,7 @@ function host(overrides: Partial<CommandHost> = {}) {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('launcher commands', () => {
-  test('every command of the shell registry has a handler of its own', async () => {
+  test('every command of the mock registry has a handler of its own', async () => {
     const { actions } = await createMockBackend().context();
     const known: readonly string[] = COMMAND_IDS;
     for (const action of actions) expect(known).toContain(action.id);
@@ -89,17 +89,18 @@ describe('launcher commands', () => {
     const { host: h, backend, told } = host({ pinned: true });
     runCommand(h, 'pin');
     runCommand(h, 'rescan');
-    runCommand(h, 'folder', { folder: 'documents' });
-    runCommand(h, 'folder', { folder: 'C:\\Windows' });
-    runCommand(h, 'config', { file: 'keybindings' });
-    runCommand(h, 'config', { file: 'secrets' });
+    runCommand(h, 'folder', { name: 'documents' });
+    runCommand(h, 'folder', { name: 'C:\\Windows' });
+    runCommand(h, 'config');
+    runCommand(h, 'keys');
+    runCommand(h, 'logs');
     runCommand(h, 'quit');
     await flush();
     expect(backend.setPinned).toHaveBeenCalledWith(false);
     expect(backend.rescan).toHaveBeenCalledTimes(1);
     expect(told).toEqual([['Apps rescanned', 'success']]);
     expect(backend.openFolder.mock.calls).toEqual([['documents']]);
-    expect(backend.openConfigFile.mock.calls).toEqual([['keybindings']]);
+    expect(backend.openConfigFile.mock.calls).toEqual([['settings'], ['keybindings'], ['logs']]);
     expect(backend.quit).toHaveBeenCalledTimes(1);
   });
 

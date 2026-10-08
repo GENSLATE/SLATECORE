@@ -40,21 +40,28 @@ export interface CommandHost {
 
 export type CommandParams = Readonly<Record<string, string>>;
 
-/** Slash commands first (the shell's registry), then the tray-only rows. */
+/**
+ * The ids this window runs itself. Every id but `show` is an id of the shell's registry
+ * (`crates/launcher-core/src/actions.rs`) and reads that registry's parameter names, so the
+ * slash bar, the tray rows and the shell all mean the same thing by it. `show` is tray-only.
+ * Registry ids missing here (`tab`, `fav`, `tools`, `hide`) go to the shell.
+ */
 export const COMMAND_IDS = [
   'open',
+  'folder',
+  'rescan',
   'theme',
   'size',
   'pin',
   'settings',
   'vault',
-  'rescan',
-  'help',
-  'ask',
-  'show',
-  'folder',
   'config',
+  'keys',
+  'logs',
+  'ask',
+  'help',
   'quit',
+  'show',
 ] as const;
 
 export type CommandId = (typeof COMMAND_IDS)[number];
@@ -77,10 +84,12 @@ const FOLDERS: readonly SharedFolder[] = [
   'videos',
   'storage',
 ];
-const CONFIG_FILES: readonly ConfigFile[] = ['settings', 'keybindings', 'logs'];
-
 const pick = <T extends string>(values: readonly T[], value: string | undefined) =>
   values.find((candidate) => candidate === value);
+
+function openFile(host: CommandHost, file: ConfigFile): void {
+  host.backend.openConfigFile(file).catch(host.fail);
+}
 
 type Handler = (host: CommandHost, params: CommandParams) => void;
 
@@ -114,14 +123,13 @@ const HANDLERS: Readonly<Record<CommandId, Handler>> = {
   help: (host) => host.show({ kind: 'help' }),
   ask: (host) => host.show({ kind: 'tool', id: 'ai' }),
   show: (host) => host.show({ kind: 'apps' }),
-  folder: (host, { folder }) => {
-    const target = pick(FOLDERS, folder);
+  folder: (host, { name }) => {
+    const target = pick(FOLDERS, name);
     if (target !== undefined) host.backend.openFolder(target).catch(host.fail);
   },
-  config: (host, { file }) => {
-    const target = pick(CONFIG_FILES, file);
-    if (target !== undefined) host.backend.openConfigFile(target).catch(host.fail);
-  },
+  config: (host) => openFile(host, 'settings'),
+  keys: (host) => openFile(host, 'keybindings'),
+  logs: (host) => openFile(host, 'logs'),
   quit: (host) => {
     host.backend.quit().catch(host.fail);
   },

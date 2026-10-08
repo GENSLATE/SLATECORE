@@ -57,7 +57,7 @@ export function App() {
     : subview || c.expanded
       ? undefined
       : appListboxIds(LISTBOX_ID, c.groups, c.results, c.collapsed);
-  const openSettingsFile = () => c.run('config', { file: 'settings' });
+  const openSettingsFile = () => c.run('config');
 
   const appsPane = (
     <div
@@ -150,7 +150,7 @@ export function App() {
       statusMode={c.statusMode}
       onStatusModeChange={c.changeStatusMode}
       onOpenSettingsFile={openSettingsFile}
-      onOpenFolder={(folder) => c.run('folder', { folder })}
+      onOpenFolder={(folder) => c.run('folder', { name: folder })}
       onOpenChange={setPopupOpen}
       onError={c.notify}
     >
@@ -171,7 +171,7 @@ export function App() {
             profile={context.profile}
             suiteName={context.suiteName}
             vault={vault.state}
-            onOpenFolder={(folder) => c.run('folder', { folder })}
+            onOpenFolder={(folder) => c.run('folder', { name: folder })}
             onOpenVault={() => c.run('vault')}
           />
         }
