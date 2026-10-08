@@ -115,7 +115,7 @@ export function PasswordFieldSection() {
 
       <Specimen
         title="Validation and variants"
-        description="Pair two fields for confirmation, hide the toggle for write-only secrets, or localise the toggle's accessible names."
+        description="Pair two fields for confirmation, hide the toggle for write-only secrets, or rename the toggle for assistive technology."
         stageClassName="grid grid-cols-3 items-start gap-6"
       >
         <div className="flex flex-col gap-4">
@@ -129,8 +129,8 @@ export function PasswordFieldSection() {
         />
         <Demo
           label="Recovery phrase"
-          description="Custom toggle labels."
-          labels={{ show: 'Reveal phrase', hide: 'Conceal phrase' }}
+          description="Custom toggle name."
+          labels={{ show: 'Reveal phrase' }}
           initial="correct horse battery"
         />
       </Specimen>
@@ -160,9 +160,10 @@ export function PasswordFieldSection() {
           },
           {
             name: 'labels',
-            type: '{ show?: string; hide?: string }',
-            default: "'Show password' / 'Hide password'",
-            description: 'Accessible names of the toggle.',
+            type: '{ show?: string }',
+            default: "'Show password'",
+            description:
+              'Accessible name of the toggle; it stays the same in both states and aria-pressed tells which one is active.',
           },
           {
             name: 'size',

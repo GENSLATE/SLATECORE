@@ -1,4 +1,12 @@
-import { Icon, TextField } from '@genslate/design-system';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  Icon,
+  Slider,
+  TextField,
+} from '@genslate/design-system';
 import { useState } from 'react';
 import { PropsTable } from '../../components/props-table.component';
 import { Specimen } from '../../components/specimen.component';
@@ -106,6 +114,29 @@ export function TextFieldSection() {
           defaultValue="feature/tree-view"
           clearable
         />
+      </Specimen>
+
+      <Specimen
+        title="Field parts"
+        description="TextField is built from Field, FieldLabel, FieldDescription and FieldError. Use them to give any control the same label, helper and error."
+        stageClassName="grid grid-cols-2 items-start gap-6"
+        code={`<Field>
+  <FieldLabel>Opacity</FieldLabel>
+  <Slider aria-label="Opacity" defaultValue={80} />
+  <FieldDescription>…</FieldDescription>
+  <FieldError match>…</FieldError>
+</Field>`}
+      >
+        <Field>
+          <FieldLabel>Opacity</FieldLabel>
+          <Slider aria-label="Opacity" defaultValue={80} />
+          <FieldDescription>Applies to the whole window.</FieldDescription>
+        </Field>
+        <Field invalid>
+          <FieldLabel>Contrast</FieldLabel>
+          <Slider aria-label="Contrast" defaultValue={12} />
+          <FieldError match>Below the accessible minimum of 30.</FieldError>
+        </Field>
       </Specimen>
 
       <PropsTable

@@ -1,4 +1,5 @@
 import {
+  Icon,
   Select,
   SelectGroup,
   SelectGroupLabel,
@@ -6,6 +7,7 @@ import {
   SelectPopup,
   SelectSeparator,
   SelectTrigger,
+  SelectValue,
 } from '@genslate/design-system';
 import { Specimen } from '../../components/specimen.component';
 import { StateMatrix } from '../../components/state-matrix.component';
@@ -114,7 +116,7 @@ export function SelectSection() {
 
       <Specimen
         title="Compound parts"
-        description="Compose the trigger, popup, groups and items yourself."
+        description="Compose the trigger, popup, groups and items yourself. SelectValue shows the current choice and can sit inside a custom trigger."
         stageClassName="items-start"
       >
         <div className="w-56">
@@ -136,6 +138,24 @@ export function SelectSection() {
                 <SelectItem value="mono">JetBrains Mono</SelectItem>
                 <SelectItem value="fira">Fira Code</SelectItem>
               </SelectGroup>
+            </SelectPopup>
+          </Select>
+        </div>
+        <div className="w-56">
+          <Select
+            aria-label="Theme"
+            defaultValue="night"
+            items={{ night: 'Polar Night', storm: 'Snow Storm' }}
+          >
+            <SelectTrigger aria-label="Theme">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <Icon name="codicon:color-mode" size={14} className="text-fg-muted" />
+                <SelectValue placeholder="Theme" />
+              </span>
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="night">Polar Night</SelectItem>
+              <SelectItem value="storm">Snow Storm</SelectItem>
             </SelectPopup>
           </Select>
         </div>

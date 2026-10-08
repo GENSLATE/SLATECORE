@@ -1,4 +1,4 @@
-import { Tab, Tabs, TabsList, TabsPanel } from '@genslate/design-system';
+import { Tab, Tabs, TabsIndicator, TabsList, TabsPanel } from '@genslate/design-system';
 import { Specimen } from '../../components/specimen.component';
 
 const PANEL = 'px-4 py-6 text-base text-fg-muted';
@@ -84,6 +84,25 @@ export function TabsSection() {
             <Tab value="disabled" disabled>
               Disabled
             </Tab>
+          </TabsList>
+        </Tabs>
+      </Specimen>
+
+      <Specimen
+        title="Manual indicator"
+        description="TabsList draws the sliding TabsIndicator for you. Turn that off to place and restyle it yourself."
+        stageClassName="flex-col items-start gap-4"
+        code={`<TabsList indicator={false}>
+  <Tab value="a">…</Tab>
+  <TabsIndicator className="bg-success" />
+</TabsList>`}
+      >
+        <Tabs defaultValue="build">
+          <TabsList indicator={false} aria-label="Pipeline">
+            <Tab value="build">Build</Tab>
+            <Tab value="test">Test</Tab>
+            <Tab value="deploy">Deploy</Tab>
+            <TabsIndicator className="bg-success" />
           </TabsList>
         </Tabs>
       </Specimen>

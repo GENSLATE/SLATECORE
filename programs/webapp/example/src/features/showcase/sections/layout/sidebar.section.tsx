@@ -4,6 +4,7 @@ import {
   IconButton,
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarHeader,
   SidebarItem,
   SidebarSection,
@@ -62,6 +63,10 @@ function SourceList({ label }: { label: string }) {
           </SidebarItem>
         </SidebarSection>
       </SidebarContent>
+      <SidebarFooter>
+        <IconButton size="xs" icon="codicon:add" label="Add folder" />
+        <span className="truncate-flex text-fg-muted text-xs">4 folders</span>
+      </SidebarFooter>
     </Sidebar>
   );
 }

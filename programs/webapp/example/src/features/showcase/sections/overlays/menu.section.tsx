@@ -2,10 +2,13 @@ import {
   Badge,
   Button,
   Menu,
+  MenuGroup,
+  MenuGroupLabel,
   MenuHeader,
   MenuItem,
   MenuPopup,
   MenuSeparator,
+  MenuShortcut,
   MenuTrigger,
 } from '@genslate/design-system';
 import { Specimen } from '../../components/specimen.component';
@@ -46,6 +49,15 @@ export function MenuSection() {
           <MenuItem icon="codicon:link" shortcut="mod+alt+c" disabled>
             Copy Link
           </MenuItem>
+          <MenuSeparator />
+          <MenuGroup>
+            <MenuGroupLabel>
+              Find
+              <MenuShortcut shortcut="mod+f" className="ml-auto" />
+            </MenuGroupLabel>
+            <MenuItem icon="codicon:search">Find in File</MenuItem>
+            <MenuItem icon="codicon:replace">Replace…</MenuItem>
+          </MenuGroup>
           <MenuSeparator />
           <MenuItem icon="codicon:trash" tone="danger">
             Delete
