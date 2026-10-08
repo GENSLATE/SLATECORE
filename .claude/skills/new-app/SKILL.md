@@ -26,7 +26,7 @@ pair starts at 1440.
 
 ## After scaffolding
 
-1. Ask the lead to add the app's commit scope to `.config/commitlint.config.ts` (and its entry
+1. Ask the owner to add the app's commit scope to `.config/commitlint.config.ts` (and its entry
    points to `.config/knip.json` if they differ); those root configs are not yours to edit.
 2. Read the generated `README.md`; keep the app on the shared packages: UI from
    `@genslate/design-system`, IPC through `@genslate/tauri-bridge`, tokens through the shared CSS
@@ -46,4 +46,5 @@ pair starts at 1440.
 - Copy another app's folder by hand, or edit `scripts/templates` for one app's needs.
 - Register OS-touching Tauri plugins (dialog, updater, opener defaults, deep-link, store,
   window-state).
-- Add dependencies without asking; the root manifests belong to the lead.
+- Edit a root manifest or add a dependency without asking the owner (the script registers the new
+  app in `Cargo.toml` and the lockfiles itself).

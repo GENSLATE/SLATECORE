@@ -1,7 +1,8 @@
 # .claude
 
 Claude Code project setup for SLATECORE. The shared rules are in `AGENTS.md` (always on);
-`CLAUDE.md` imports it. Everything here is checked by `bun run check` (`scripts/lib/agents-check.ts`).
+`CLAUDE.md` imports it. Everything here is checked by `bun run check` (`scripts/lib/agents-check.ts`
+and its folder `agents-check/`).
 
 | Path | What it holds |
 |---|---|
@@ -17,8 +18,8 @@ Claude Code project setup for SLATECORE. The shared rules are in `AGENTS.md` (al
 ## Adding things
 
 - **Rule:** create `rules/<topic>.md` with `paths:` globs, keep it short, then add a Cursor shim
-  in `.cursor/rules/` and an Antigravity shim in `.agents/rules/` that point at it, and list it in
-  `scripts/lib/agents-check.ts` (the check fails on a missing or dangling pointer).
+  in `.cursor/rules/` and an Antigravity shim in `.agents/rules/` that point at it (the check scans
+  the folders and fails on a dangling pointer or frontmatter a tool would drop).
 - **Skill or command:** `skills/<name>/SKILL.md` with `name` equal to the folder and a `description`
   that says when to use it. Side-effect workflows set `disable-model-invocation: true`.
 - **Agent:** `agents/<name>.md` with `name`, `description` and the tools it needs.

@@ -9,7 +9,6 @@
         "scripts/lib/generated-paths.ts",
         "scripts/no-trace/**/*.ts",
         ".claude/hooks/*.ts",
-        ".claude/statusline/*.ts",
         ".config/*.ts",
         "scripts/tests/**/*.test.ts"
       ],

@@ -25,7 +25,7 @@ the thin turbo wrappers pass every extra argument straight to turbo (`bun run ch
 scripts/
 ├── commands/        one file per root command (turbo.util.ts is the shared turbo helper)
 ├── lib/             pure helpers, each taking the repo root where tests need a temp copy
-│   ├── agents-check.ts   agent-folder drift check (stub until the agent-folders task)
+│   ├── agents-check.ts   agent-folder drift check, a facade over agents-check/ (context, rules, settings, screenshots)
 │   ├── args.ts           defineCommand(): parsing, --help, exit codes
 │   ├── attribution.ts    the authorship rules behind `bun run attribution`
 │   ├── clean.ts          what `clean` removes

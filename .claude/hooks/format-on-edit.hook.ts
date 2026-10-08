@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { addContext, editedFile, projectDir, readInput, run } from './hook.shared';
+import { addContext, editedFile, outsideProject, projectDir, readInput, run } from './hook.shared';
 
 const BIOME_FILES = /\.(?:[cm]?[jt]sx?|jsonc?|css)$/;
 const MAX_REPORT_LINES = 40;
@@ -41,7 +41,7 @@ if (import.meta.main) {
   await run(async () => {
     const root = projectDir();
     const file = editedFile(await readInput(), root);
-    if (file === undefined) return;
+    if (file === undefined || outsideProject(file)) return; // Not this repository's file.
     const formatter = formatterFor(file);
     const path = resolve(root, file);
     if (formatter === undefined || !existsSync(path)) return;

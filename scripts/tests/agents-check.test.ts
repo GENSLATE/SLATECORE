@@ -1,9 +1,10 @@
-// cspell:ignore claudeignore agentignore cursorignore cursorrules NOSYSTEM
 import { afterAll, describe, expect, test } from 'bun:test';
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync } from 'node:fs';
+import { cp, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { devNull, tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 
+import { outsideProject, toRelative } from '../../.claude/hooks/hook.shared';
 import { checkAgents } from '../lib/agents-check';
 import { ROOT } from '../lib/paths';
 
@@ -25,19 +26,52 @@ afterAll(async () => {
   await Promise.all(scratch.map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-/** A copy of the agent files without the (large) screenshot folder. */
+/** Local and bulky state a scratch copy leaves out: worktrees, logs, screenshots, personal settings. */
+const LOCAL_STATE = ['.claude/worktrees', '.claude/logs', '.claude/project'];
+
+function isCopied(source: string): boolean {
+  const path = relative(ROOT, source).replaceAll('\\', '/');
+  return (
+    basename(path) !== 'settings.local.json' &&
+    !LOCAL_STATE.some((skip) => path === skip || path.startsWith(`${skip}/`))
+  );
+}
+
+/** A copy of the agent files, without local state. */
 async function fixture(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'slatecore-agents-'));
   scratch.push(dir);
   for (const name of COPIED) {
-    await cp(join(ROOT, name), join(dir, name), {
-      recursive: true,
-      filter: (source) =>
-        !relative(ROOT, source).replaceAll('\\', '/').startsWith('.claude/project/screenshots'),
-    });
+    await cp(join(ROOT, name), join(dir, name), { recursive: true, filter: isCopied });
   }
   return dir;
 }
+
+interface Settings {
+  permissions: { allow: string[]; deny: string[]; defaultMode?: string };
+}
+
+/** Rewrites `.claude/settings.json` in a scratch root through a typed view of it. */
+async function editSettings(root: string, change: (settings: Settings) => void): Promise<void> {
+  const file = join(root, '.claude/settings.json');
+  const settings = JSON.parse(await readFile(file, 'utf8')) as Settings;
+  change(settings);
+  await writeFile(file, JSON.stringify(settings, null, 2));
+}
+
+/** Whether this machine lets the tests create symlinks (Windows needs Developer Mode). */
+const canSymlink = await (async (): Promise<boolean> => {
+  const dir = await mkdtemp(join(tmpdir(), 'slatecore-link-'));
+  try {
+    await writeFile(join(dir, 'target'), 'x');
+    await symlink(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+})();
 
 async function edit(root: string, path: string, change: (text: string) => string): Promise<void> {
   const file = join(root, path);
@@ -70,6 +104,24 @@ describe('the repository agent folders', () => {
   test('a_pristine_copy_has_no_problems', async () => {
     expect(await checkAgents(await fixture())).toEqual([]);
   });
+
+  test('a_copy_leaves_out_local_state', () => {
+    for (const path of [
+      '.claude/worktrees/agent-1/AGENTS.md',
+      '.claude/logs/session.log',
+      '.claude/project/screenshots/launcher/launcher-polar-night-home.png',
+      '.claude/settings.local.json',
+    ]) {
+      expect(isCopied(join(ROOT, path))).toBe(false);
+    }
+    for (const path of [
+      '.claude/settings.json',
+      '.claude/rules/workflow.md',
+      '.claude/projects.md',
+    ]) {
+      expect(isCopied(join(ROOT, path))).toBe(true);
+    }
+  });
 });
 
 describe('AGENTS.md and CLAUDE.md', () => {
@@ -89,6 +141,30 @@ describe('AGENTS.md and CLAUDE.md', () => {
     const root = await fixture();
     await edit(root, 'CLAUDE.md', (body) => `${body}@.claude/memory/decisions.md\n`);
     expect(about(await checkAgents(root), 'CLAUDE.md', 'import')).not.toEqual([]);
+  });
+
+  test('claude_md_rejects_imports_in_the_middle_of_a_line', async () => {
+    const root = await fixture();
+    await edit(root, 'CLAUDE.md', (body) => `${body}\nSee @.claude/memory/decisions.md for why.\n`);
+    expect(about(await checkAgents(root), 'CLAUDE.md', 'decisions.md')).not.toEqual([]);
+
+    // Code spans, fences and e-mail addresses are not imports.
+    const quoted = await fixture();
+    await edit(
+      quoted,
+      'CLAUDE.md',
+      (body) =>
+        `${body}\nType \`@decisions.md\` in a prompt or write to jo@example.com.\n\n\`\`\`\n@.claude/memory/decisions.md\n\`\`\`\n`,
+    );
+    expect(about(await checkAgents(quoted), 'CLAUDE.md')).toEqual([]);
+  });
+
+  test('agents_md_carries_the_no_agent_credit_rule', async () => {
+    expect(await readText('AGENTS.md')).toContain('Co-Authored-By');
+
+    const root = await fixture();
+    await edit(root, 'AGENTS.md', (text) => text.replaceAll('Co-Authored-By', 'a trailer'));
+    expect(about(await checkAgents(root), 'AGENTS.md', 'Co-Authored-By')).not.toEqual([]);
   });
 
   test('agents_md_opens_with_slatecore_by_genslate_statement', async () => {
@@ -119,6 +195,18 @@ describe('AGENTS.md and CLAUDE.md', () => {
     expect(about(await checkAgents(root), 'AGENTS.md', 'lines')).toEqual([]);
     await edit(root, 'AGENTS.md', (text) => `${text}- one more\n`);
     expect(about(await checkAgents(root), 'AGENTS.md', '111')).not.toEqual([]);
+
+    const claude = await fixture();
+    await edit(claude, 'CLAUDE.md', (text) => `${text}${'- note\n'.repeat(30)}`);
+    expect(about(await checkAgents(claude), 'CLAUDE.md', 'lines')).not.toEqual([]);
+
+    const context = await fixture();
+    await edit(
+      context,
+      '.claude/memory/active-context.md',
+      (text) => `${text}${'- note\n'.repeat(40)}`,
+    );
+    expect(about(await checkAgents(context), 'active-context.md', 'lines')).not.toEqual([]);
 
     const fat = await fixture();
     await edit(fat, '.cursor/rules/rust.mdc', (text) => `${text}${'a\n'.repeat(20)}`);
@@ -173,6 +261,16 @@ describe('workflow rules (owner standing rules)', () => {
     expect(about(await checkAgents(noPlan), 'AGENTS.md', 'approval')).not.toEqual([]);
   });
 
+  test('the_workflow_rule_is_always_on_and_never_path_scoped', async () => {
+    expect(await readText('.claude/rules/workflow.md')).not.toContain('paths:');
+
+    for (const paths of ['paths:\n  - "**/*.ts"', 'paths: []']) {
+      const root = await fixture();
+      await edit(root, '.claude/rules/workflow.md', (text) => `---\n${paths}\n---\n${text}`);
+      expect(about(await checkAgents(root), 'workflow.md', 'paths')).not.toEqual([]);
+    }
+  });
+
   test('workflow_shims_are_always_on', async () => {
     expect(await readText('.cursor/rules/workflow.mdc')).toContain('alwaysApply: true');
     expect(await readText('.agents/rules/workflow.md')).toContain('trigger: always_on');
@@ -192,15 +290,24 @@ describe('workflow rules (owner standing rules)', () => {
 });
 
 describe('structure', () => {
-  test('no_symlinks_in_agent_folders', async () => {
-    const root = await fixture();
-    try {
-      await symlink(join(root, 'AGENTS.md'), join(root, '.claude/rules/linked.md'));
-    } catch {
-      // Windows without Developer Mode cannot create symlinks; nothing to assert then.
-      return;
+  // Skipped, not passed, where symlinks cannot be created (Windows without Developer Mode).
+  test.skipIf(!canSymlink)('no_symlinks_in_agent_folders', async () => {
+    for (const link of [
+      '.claude/rules/linked.md',
+      '.cursor/rules/linked.mdc',
+      '.agents/skills/linked.md',
+    ]) {
+      const root = await fixture();
+      await symlink(join(root, 'AGENTS.md'), join(root, link));
+      expect(about(await checkAgents(root), link, 'symlink')).not.toEqual([]);
     }
-    expect(about(await checkAgents(root), 'linked.md', 'symlink')).not.toEqual([]);
+  });
+
+  test.skipIf(!canSymlink)('a_symlinked_root_file_is_rejected', async () => {
+    const root = await fixture();
+    await rename(join(root, 'CLAUDE.md'), join(root, 'real-claude.md'));
+    await symlink('real-claude.md', join(root, 'CLAUDE.md'));
+    expect(about(await checkAgents(root), 'CLAUDE.md', 'symlink')).not.toEqual([]);
   });
 
   test('rule_files_have_md_extension_in_claude_rules', async () => {
@@ -305,6 +412,10 @@ describe('structure', () => {
     await edit(agent, '.claude/agents/code-reviewer.md', (text) => text.replace(/^name:.*\n/m, ''));
     expect(about(await checkAgents(agent), 'code-reviewer.md', 'name')).not.toEqual([]);
 
+    const bare = await fixture();
+    await put(bare, '.claude/skills/orphan/notes.md', 'no SKILL.md here\n');
+    expect(about(await checkAgents(bare), 'skills/orphan', 'SKILL.md')).not.toEqual([]);
+
     const long = await fixture();
     await edit(long, '.claude/skills/release/SKILL.md', (text) => `${text}${'step\n'.repeat(600)}`);
     expect(about(await checkAgents(long), 'release/SKILL.md', 'lines')).not.toEqual([]);
@@ -332,13 +443,33 @@ describe('structure', () => {
     expect(about(await checkAgents(mcp), '.mcp.json', 'environment variable')).not.toEqual([]);
   });
 
-  test('required_files_exist', async () => {
+  test('the_core_files_must_exist', async () => {
+    const core = [
+      'AGENTS.md',
+      'CLAUDE.md',
+      '.mcp.json',
+      '.cursorignore',
+      '.vscode/extensions.json',
+      '.claude/settings.json',
+      '.claude/rules/branding.md',
+      '.claude/rules/workflow.md',
+      '.claude/memory/active-context.md',
+      '.cursor/rules/workflow.mdc',
+      '.agents/rules/workflow.md',
+    ];
     const root = await fixture();
-    await rm(join(root, '.claude/agents/security-reviewer.md'));
-    await rm(join(root, '.agents/skills/ui-fixes', 'SKILL.md'));
+    for (const path of core) await rm(join(root, path));
     const problems = await checkAgents(root);
-    expect(about(problems, 'security-reviewer.md', 'missing')).not.toEqual([]);
-    expect(about(problems, 'ui-fixes', 'missing')).not.toEqual([]);
+    for (const path of core) expect(about(problems, path, 'missing')).not.toEqual([]);
+  });
+
+  test('a_rule_that_loses_its_file_leaves_its_shim_dangling', async () => {
+    const root = await fixture();
+    await rm(join(root, '.claude/rules/rust-standards.md'));
+    expect(about(await checkAgents(root), 'rust.mdc', 'rust-standards.md')).not.toEqual([]);
+    expect(about(await checkAgents(root), 'rust-portability.md', 'rust-standards.md')).not.toEqual(
+      [],
+    );
   });
 });
 
@@ -404,6 +535,50 @@ describe('settings and hooks', () => {
     );
     expect(about(await checkAgents(credit), 'settings.json', 'attribution')).not.toEqual([]);
   });
+
+  test('settings_deny_the_ways_around_the_hooks_and_the_secrets', async () => {
+    const required = [
+      'Bash(git * --no-verify*)',
+      'Bash(git commit -n*)',
+      'Bash(*LEFTHOOK=0*)',
+      'Read(**/.env)',
+      'Read(**/.genslate/**)',
+      'Read(**/storage/vault/**)',
+    ];
+    const { permissions } = JSON.parse(await readText('.claude/settings.json')) as Settings;
+    for (const rule of required) expect(permissions.deny).toContain(rule);
+
+    const root = await fixture();
+    await editSettings(root, ({ permissions: { deny } }) => {
+      deny.splice(0, deny.length, ...deny.filter((rule) => !required.includes(rule)));
+    });
+    const problems = await checkAgents(root);
+    for (const rule of required) expect(about(problems, 'settings.json', rule)).not.toEqual([]);
+  });
+
+  test('settings_never_allow_every_command_or_bypass_permissions', async () => {
+    for (const rule of ['Bash(*)', 'Bash', 'PowerShell(*)', '*']) {
+      const root = await fixture();
+      await editSettings(root, ({ permissions }) => {
+        permissions.allow.push(rule);
+      });
+      expect(about(await checkAgents(root), 'settings.json', 'allow', rule)).not.toEqual([]);
+    }
+
+    const bypass = await fixture();
+    await editSettings(bypass, ({ permissions }) => {
+      permissions.defaultMode = 'bypassPermissions';
+    });
+    expect(about(await checkAgents(bypass), 'settings.json', 'bypassPermissions')).not.toEqual([]);
+
+    // Narrow allow rules (the shipped `Bash(bun run *)` among them) stay fine.
+    const narrow = await fixture();
+    await editSettings(narrow, ({ permissions }) => {
+      permissions.defaultMode = 'acceptEdits';
+      permissions.allow.push('Bash(bun test *)');
+    });
+    expect(await checkAgents(narrow)).toEqual([]);
+  });
 });
 
 describe('.claude/project (screenshots reused for READMEs and websites)', () => {
@@ -447,10 +622,23 @@ describe('.claude/project (screenshots reused for READMEs and websites)', () => 
     expect(await checkAgents(root)).toEqual([]);
   });
 
-  test('the_committed_screenshots_pass_when_present', async () => {
-    // The real folder holds the Design Kit and launcher sets; the repo check above already walks it.
-    expect(await Bun.file(join(ROOT, '.claude/project/.gitkeep')).exists()).toBe(true);
-  });
+  const committed = join(ROOT, '.claude/project/screenshots');
+
+  test.skipIf(!existsSync(committed))(
+    'the_committed_screenshot_sets_follow_the_convention',
+    async () => {
+      const apps = readdirSync(committed, { withFileTypes: true }).filter((entry) =>
+        entry.isDirectory(),
+      );
+      expect(apps.length).toBeGreaterThan(0);
+      for (const { name } of apps) {
+        const shots = readdirSync(join(committed, name)).filter((file) => file.endsWith('.png'));
+        expect(shots.length).toBeGreaterThan(0);
+        expect(shots.length % 2).toBe(0); // Every view exists in both themes.
+      }
+      expect(about(await checkAgents(ROOT), '.claude/project')).toEqual([]);
+    },
+  );
 });
 
 describe('hook scripts', () => {
@@ -513,6 +701,17 @@ describe('hook scripts', () => {
     expect(runHook('guard-generated.hook.ts', edit('Cargo.lock', 'Write')).code).toBe(2);
   });
 
+  test('guard_generated_ignores_letter_case_like_a_windows_file_system', () => {
+    for (const path of [
+      'Cargo.LOCK',
+      'BUN.lock',
+      'Packages/Tokens/src/Generated/css/tokens.css',
+      'Programs/Desktop/launcher/Installdir/storage/Vault/files/0123.gvf',
+    ]) {
+      expect(runHook('guard-generated.hook.ts', edit(path)).code).toBe(2);
+    }
+  });
+
   test('guard_generated_lets_source_files_through', () => {
     for (const path of [
       'packages/tokens/src/tokens/color.tokens.ts',
@@ -539,6 +738,38 @@ describe('hook scripts', () => {
     expect(runHook('format-on-edit.hook.ts', 'nope').code).toBe(0);
     const missing = runHook('format-on-edit.hook.ts', edit(join(ROOT, 'does/not/exist.ts')));
     expect(missing.code).toBe(0);
+  });
+
+  test('paths_outside_the_project_root_are_recognised', () => {
+    const outside = (file: string, root: string): boolean => outsideProject(toRelative(file, root));
+    expect(outside('/work/app/src/a.ts', '/work/app')).toBe(false);
+    expect(outside('src/a.ts', '/work/app')).toBe(false);
+    expect(outside('/work/other/a.ts', '/work/app')).toBe(true);
+    expect(outside('../a.ts', '/work/app')).toBe(true);
+    expect(outside('src/../../a.ts', '/work/app')).toBe(true);
+    expect(outside('S:\\SLATECORE\\src\\a.ts', 'S:\\SLATECORE')).toBe(false);
+    expect(outside('s:\\slatecore\\src\\a.ts', 'S:\\SLATECORE')).toBe(false);
+    expect(outside('D:\\notes\\a.ts', 'S:\\SLATECORE')).toBe(true);
+  });
+
+  test('format_on_edit_skips_files_outside_the_project', async () => {
+    const messy = 'const   a=1\nexport {a}\n';
+    const base = await mkdtemp(join(tmpdir(), 'slatecore-format-'));
+    scratch.push(base);
+    await mkdir(join(base, 'project'));
+    await writeFile(join(base, 'outside.ts'), messy);
+
+    // An absolute path next to the project, and a `..` path out of it: neither is formatted.
+    for (const file of [join(base, 'outside.ts'), '../outside.ts']) {
+      const result = runHook(
+        'format-on-edit.hook.ts',
+        edit(file, 'Write'),
+        { CLAUDE_PROJECT_DIR: join(base, 'project') },
+        join(base, 'project'),
+      );
+      expect(result).toMatchObject({ code: 0, stdout: '' });
+      expect(await readFile(join(base, 'outside.ts'), 'utf8')).toBe(messy);
+    }
   });
 
   test('session_start_prints_context_and_replaces_an_agent_git_identity', async () => {

@@ -50,5 +50,3 @@ Show the owner: version, changelog, zip names and sizes, gate results. After an 
 
 - Publish crates (`cargo publish` is denied), upload anywhere else, or write release notes by hand.
 - Tag with failing gates or an unreviewed security diff.
-
-<!-- cspell:ignore changie retag -->

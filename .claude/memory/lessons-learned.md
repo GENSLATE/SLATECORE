@@ -51,5 +51,3 @@ Gotchas with their fix. Add one when something cost you time; keep each to a lin
   loaded; only `.md` is. Antigravity drops a rule whose `trigger` is not valid.
 - **Turborepo edits `AGENTS.md`** when it detects an agent unless `agentGuidance` is `false` in
   `turbo.json` (it is).
-
-<!-- cspell:ignore claudeignore worktrees pathspec -->

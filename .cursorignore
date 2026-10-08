@@ -29,6 +29,3 @@ programs/desktop/launcher/installDir/storage/
 programs/desktop/launcher/other/launcher/cache/
 programs/desktop/launcher/other/launcher/logs/
 programs/desktop/launcher/other/launcher/database/
-
-# Committed screenshots (binary, reused for READMEs and websites)
-.claude/project/screenshots/

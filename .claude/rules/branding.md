@@ -24,4 +24,5 @@ Check every user-visible string against this before you write it (spec section 1
   `xyz.genslate.*`. Lowercase identifiers are code, not brand text.
 - Fixed identifiers: root package `slatecore`; Tauri package `genslate-launcher` with binary
   `slatecore-launcher`; later apps use `xyz.genslate.slatecore.<app>`.
-- Never reuse SlateSuite names or the previous owner or machine identifiers in tracked files.
+- Never reuse SlateSuite identifiers (package names, bundle ids, paths) or personal or machine
+  identifiers in tracked files.

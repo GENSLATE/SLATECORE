@@ -11,6 +11,5 @@ repository root and loads skills from `.agents/skills/` (shared with Antigravity
 Not here on purpose: hooks (lefthook and CI enforce the rules), agents, commands (skills cover
 them), `settings.json` and `extensions.json` (not Cursor files; editor recommendations are in
 `.vscode/extensions.json`). `.cursorignore` at the root keeps generated and private files out of
-the index; it is not a security boundary. Check Settings > Rules after a change.
-
-<!-- cspell:ignore cursorignore -->
+the index; it is not a security boundary. `.cursorindexingignore` keeps the committed screenshots
+out of the index only, so they can still be attached. Check Settings > Rules after a change.

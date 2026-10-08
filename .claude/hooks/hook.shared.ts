@@ -73,6 +73,11 @@ export function toRelative(file: string, root: string): string {
   return isAbsolutePath(path) ? path : path.replace(/^\.\//, '');
 }
 
+/** Whether a path from `toRelative` lies outside the project root (absolute, or climbing out). */
+export function outsideProject(relPath: string): boolean {
+  return isAbsolutePath(relPath) || relPath === '..' || relPath.startsWith('../');
+}
+
 /** The file an Edit, Write, MultiEdit or NotebookEdit call targets, relative to the project root. */
 export function editedFile(input: HookInput, root: string = projectDir()): string | undefined {
   const file = input.toolInput['file_path'] ?? input.toolInput['notebook_path'];

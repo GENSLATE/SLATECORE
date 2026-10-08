@@ -14,8 +14,9 @@ paths:
 # Monorepo structure
 
 Turborepo orchestrates TypeScript tasks per package and Rust tasks once at the root; bun is the
-package manager; Cargo is one workspace. Only the lead edits root manifests (`package.json`,
-`turbo.json`, `Cargo.toml`, lockfiles); ask before changing one.
+package manager; Cargo is one workspace. Ask the owner before changing a root manifest
+(`package.json`, `turbo.json`, `Cargo.toml`); `bun run new-app`, `bun add` and `cargo add` edit them
+and the lockfiles themselves, never by hand.
 
 ## Where things go
 

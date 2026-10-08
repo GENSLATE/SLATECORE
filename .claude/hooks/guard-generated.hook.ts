@@ -37,7 +37,9 @@ const REGENERATE: readonly { readonly glob: string; readonly hint: string }[] = 
   },
 ];
 
-const matches = (glob: string, path: string): boolean => new Bun.Glob(glob).match(path);
+/** Case-insensitive, like the Windows file system the owner works on (`Cargo.LOCK` is `Cargo.lock`). */
+const matches = (glob: string, path: string): boolean =>
+  new Bun.Glob(glob.toLowerCase()).match(path.toLowerCase());
 
 /** Why `relPath` (relative to the repository root, `/` separators) must not be edited, if so. */
 export function protectedReason(relPath: string): string | undefined {

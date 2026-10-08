@@ -15,5 +15,3 @@ fragment in `.changes/unreleased/`; the `/change` command writes it.
 - Not user-visible (tests, refactors, CI, docs of internals): no fragment.
 - Never edit `.changes/releases/` or `CHANGELOG.md` by hand; `bun run version` folds fragments in.
 - Names in the text follow `branding.md` (SLATECORE LAUNCHER, GENSLATE).
-
-<!-- cspell:ignore changie -->

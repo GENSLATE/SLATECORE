@@ -37,8 +37,7 @@ Antigravity rule files in `.cursor/rules/` and `.agents/rules/` are short shims 
    `[workspace.dependencies]` and `rust-toolchain.toml`. Do not repeat version numbers in docs.
 7. Tool configs live in `.config/` (Biome needs `--config-path=.config/biome.json`).
 8. Verify library APIs (Base UI, Tauri, Tailwind v4, Turborepo, Biome) against current docs
-   (Context7 MCP or the official site) before using them. Turborepo docs for the pinned version:
-   `node_modules/turbo/docs/README.md`.
+   (Context7 MCP or the official site); Turborepo's: `node_modules/turbo/docs/README.md`.
 9. No personal information, absolute local paths or secrets in tracked files. Never read or copy
    `.env*` or `.genslate/`.
 
@@ -107,4 +106,5 @@ agents share the checkout. Never skip hooks (`--no-verify`). Every user-visible 
 ## Definition of done
 
 `bun run check` and `bun run test` are green, no token drift, UI reviewed in both themes with
-screenshots committed, docs and `.claude/memory/active-context.md` updated, changelog fragment added.
+screenshots committed, docs and `.claude/memory/active-context.md` updated, a changelog fragment
+if user-visible.

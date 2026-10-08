@@ -1,20 +1,25 @@
 # SLATECORE project dictionary: one word per line, sorted, case-insensitive.
 # Add a word here instead of disabling the spell checker inline.
 aeiou
+agentignore
 appinfo
 arcticicestudio
 arrowdown
 arrowleft
 arrowright
 arrowup
+backticked
 blurr
+bradlc
 bsdtar
 bunfig
 bunx
 cdylib
 chacha
+changie
 checkmarked
 checkmarks
+claudeignore
 clippy
 codegen
 codereview
@@ -24,6 +29,9 @@ commitlint
 consts
 cspell
 cursoragent
+cursorignore
+cursorindexingignore
+cursorrules
 cyclomatic
 debouncer
 dedupe
@@ -75,11 +83,13 @@ noexe
 noopener
 nord
 nordtheme
+nosystem
 nvml
 oklch
 oneline
 opsz
 Ottosson
+pathspec
 portableapps
 portapp
 portapps
@@ -89,6 +99,7 @@ recents
 refetched
 Registrator
 replacen
+retag
 rlib
 rolldown
 rsms
@@ -106,9 +117,11 @@ snapshotted
 splitn
 staticlib
 subview
+Swatinem
 sysinfo
 tabbar
 tailwindcss
+tamasfe
 tauri
 tctl
 tera
@@ -118,6 +131,8 @@ titlebars
 tokio
 treeitems
 truecolor
+worktreeinclude
+worktrees
 Ünïcode
 unlisten
 unminimize

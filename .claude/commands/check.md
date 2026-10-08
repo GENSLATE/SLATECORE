@@ -1,7 +1,7 @@
 ---
 description: Run every SLATECORE gate and fix what fails (add --no-fix to only report)
 argument-hint: "[--no-fix] [--ts|--rust]"
-allowed-tools: Bash(bun run *), Bash(bun x --no-install *), Bash(cargo *), Read, Edit, Grep, Glob
+allowed-tools: Bash(bun run *), Bash(bun x --no-install *), Bash(cargo fmt *), Bash(cargo clippy *), Bash(cargo test *), Bash(cargo deny *), Bash(cargo machete *), Read, Edit, Grep, Glob
 ---
 
 Run the repository gates and report. Arguments: $ARGUMENTS
