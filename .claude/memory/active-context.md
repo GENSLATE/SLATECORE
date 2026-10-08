@@ -1,17 +1,21 @@
 # Active context
 
 Loaded into every Claude session through `CLAUDE.md`, so keep it under 40 lines and rewrite it
-rather than appending. Last updated 2026-10-08 (agent folders task).
+rather than appending. Last updated 2026-10-08 (launcher UI fix round 2).
 
 ## State
 
-- Branch `build/launcher-v1`, building SLATECORE LAUNCHER by GENSLATE from the approved launcher
-  plan (`docs/superpowers/plans/2026-10-07-genslate-launcher-plan.md`, local only, gitignored).
-- Landed: monorepo foundation, tokens, design system, Design Kit, tauri-bridge, root commands and
-  git hooks, CI, the `paths` crate, the first launcher UI (tabs, slash bar, Settings tool) and
-  the agent folders. `git log --oneline` is the source of truth.
-- In flight at the time of writing: `launcher-core` and `vault` crates (uncommitted work in
-  `crates/`), then the Tauri shell, packaging and the portability test.
+- Branch `build/launcher-v1` (pushed), building SLATECORE LAUNCHER by GENSLATE from the approved
+  launcher plan (`docs/superpowers/plans/2026-10-07-genslate-launcher-plan.md`, local only).
+- Landed: monorepo foundation, tokens, design system, Design Kit, tauri-bridge, root commands
+  and git hooks, CI, the agent folders, the crates `paths`, `launcher-core` and `vault` (vault
+  still in its review fix round), and the launcher UI (tabs, slash bar, Settings tool, tray
+  menu) against the browser mock. `git log --oneline` is the source of truth.
+- Remaining: Task 12 (Tauri shell in `src-tauri`, serving the real command registry and IPC),
+  Task 13, Task 16, and screenshots of the real app on Windows.
+- The UI's command handlers use the Rust registry's ids and parameter names
+  (`crates/launcher-core/src/actions.rs`); a launcher test reads that file, so renaming an id or
+  parameter there means updating `src/app/launcher-commands.model.ts`.
 
 ## Owner rules (always)
 
@@ -27,11 +31,9 @@ rather than appending. Last updated 2026-10-08 (agent folders task).
   (`git add -- <paths>`, `git commit -- <paths>`); other agents may have uncommitted files.
 - No agent credit in commits or PRs; the commit-msg hook and CI reject it.
 - Never delete or rewrite `.claude/project/` (committed screenshots from other agents).
-- `bun run check` is the gate. Empty skeleton files owned by unfinished tasks can still fail
-  Biome or knip; run the gates on your own files and say so in your report.
+- `bun run check` is the gate; `turbo run build` for the launcher waits on Task 12.
 
 ## Open questions
 
 - Which single icon set long term (Codicons today)? Owner has not objected.
-- Whether Cursor and Antigravity add commit trailers is unverified; the attribution check
-  covers both.
+- Do Cursor and Antigravity add commit trailers? Unverified; the attribution check covers both.
