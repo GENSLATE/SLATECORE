@@ -27,11 +27,13 @@
     },
     "packages/design-system": {
       "entry": ["scripts/*.ts", "tests/**/*.{ts,tsx}", "tests/setup/*.ts"],
-      "project": ["src/**/*.{ts,tsx,css}", "scripts/**/*.ts", "tests/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx,css}", "scripts/**/*.ts", "tests/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["happy-dom"]
     },
     "packages/tauri-bridge": {
       "entry": ["tests/**/*.test.ts", "tests/setup/*.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["happy-dom"]
     },
     "packages/config-vite": {
       "entry": [],
@@ -43,7 +45,8 @@
     },
     "programs/desktop/*": {
       "entry": ["tests/**/*.{ts,tsx}", "tests/setup/*.ts"],
-      "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["happy-dom"]
     },
     "programs/desktop/launcher": {
       "entry": ["src/tray-menu.main.tsx", "tests/**/*.{ts,tsx}", "tests/setup/*.ts"],
@@ -53,12 +56,14 @@
         "@tauri-apps/plugin-global-shortcut",
         "@tauri-apps/plugin-log",
         "@tauri-apps/plugin-opener",
-        "@tauri-apps/plugin-os"
+        "@tauri-apps/plugin-os",
+        "happy-dom"
       ]
     },
     "programs/webapp/*": {
       "entry": ["tests/**/*.{ts,tsx}", "tests/setup/*.ts"],
-      "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx,css}", "tests/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["happy-dom"]
     }
   }
 }

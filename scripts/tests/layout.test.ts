@@ -54,7 +54,9 @@ describe('repository layout', () => {
 
     const tracked = git(['ls-files']).out.split('\n');
     const committed = NEVER_TRACKED.filter((needle) =>
-      tracked.some((file) => file === needle || file.startsWith(needle) || file.includes(`/${needle}`)),
+      tracked.some(
+        (file) => file === needle || file.startsWith(needle) || file.includes(`/${needle}`),
+      ),
     );
     expect(committed).toEqual([]);
   });
