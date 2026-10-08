@@ -181,24 +181,33 @@ fn has_install_shape(root: &Path) -> bool {
     root.join("other").is_dir() && root.join("storage").is_dir()
 }
 
-/// The `programs` folder of `root` as it exists (any letter case), else `root/programs`.
+/// The `programs` folder of `root` with the name it really has (any letter case), else
+/// `root/programs`.
+///
+/// The listing comes first on purpose: on a case-insensitive file system `root/programs` also
+/// "exists" when the folder is called `Programs`, and `Path` equality is case-sensitive.
 fn programs_dir(root: &Path) -> PathBuf {
-    let exact = root.join("programs");
-    if exact.is_dir() {
-        return exact;
-    }
-    fs::read_dir(root)
+    let folders = fs::read_dir(root)
         .into_iter()
         .flatten()
         .flatten()
-        .find(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.eq_ignore_ascii_case("programs"))
-                && entry.path().is_dir()
-        })
-        .map_or(exact, |entry| entry.path())
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok());
+    root.join(pick_programs_name(folders).unwrap_or_else(|| "programs".to_owned()))
+}
+
+/// The name that spells `programs` in any letter case: the exact lowercase one if present, else
+/// the first in sorted order (a case-sensitive file system can hold several).
+fn pick_programs_name(names: impl IntoIterator<Item = String>) -> Option<String> {
+    let mut matching: Vec<String> = names
+        .into_iter()
+        .filter(|name| name.eq_ignore_ascii_case("programs"))
+        .collect();
+    matching.sort();
+    match matching.iter().position(|name| name == "programs") {
+        Some(exact) => Some(matching.swap_remove(exact)),
+        None => matching.into_iter().next(),
+    }
 }
 
 /// Drops a `\\?\` prefix that Windows adds when a path is canonicalised.
@@ -449,6 +458,61 @@ mod tests {
             detect_layout(&forced)?.programs,
             Some(root.join("Programs"))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_real_programs_name_is_picked_from_a_listing() {
+        let names = |list: &[&str]| {
+            list.iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<_>>()
+        };
+        // A case-insensitive file system lists the folder under its real name, even though
+        // `root/programs` also "exists" there.
+        assert_eq!(
+            pick_programs_name(names(&["other", "Programs", "storage"])),
+            Some("Programs".to_owned())
+        );
+        assert_eq!(
+            pick_programs_name(names(&["PROGRAMS"])),
+            Some("PROGRAMS".to_owned())
+        );
+        // On a case-sensitive one the exact spelling wins over other spellings.
+        assert_eq!(
+            pick_programs_name(names(&["Programs", "programs", "PROGRAMS"])),
+            Some("programs".to_owned())
+        );
+        assert_eq!(
+            pick_programs_name(names(&["Programs", "PROGRAMS"])),
+            Some("PROGRAMS".to_owned())
+        );
+        assert_eq!(
+            pick_programs_name(names(&["other", "storage", "programs.old"])),
+            None
+        );
+        assert_eq!(pick_programs_name(names(&[])), None);
+    }
+
+    #[test]
+    fn programs_dir_falls_back_to_the_plain_name_when_nothing_matches() -> TestResult {
+        let tree = TempTree::new()?.dir("x/other")?;
+        assert_eq!(programs_dir(&tree.join("x")), tree.join("x/programs"));
+        assert_eq!(
+            programs_dir(&tree.join("missing")),
+            tree.join("missing/programs")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn programs_dir_ignores_a_file_called_programs() -> TestResult {
+        let tree = TempTree::new()?.file("x/programs", "not a folder")?;
+        assert_eq!(programs_dir(&tree.join("x")), tree.join("x/programs"));
+        let tree = TempTree::new()?
+            .dir("x/Programs")?
+            .file("x/programs.txt", "")?;
+        assert_eq!(programs_dir(&tree.join("x")), tree.join("x/Programs"));
         Ok(())
     }
 

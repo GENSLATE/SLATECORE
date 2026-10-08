@@ -33,7 +33,7 @@ pub enum PathsError {
     /// An app name that is not lowercase kebab-case (`launcher`, `explorer`), or a profile name
     /// that is not one plain folder name.
     #[error(
-        "invalid name {0:?}: app names use lowercase letters, digits and '-' (not at the end, \
+        "invalid name {0:?}: app names use lowercase letters, digits and '-' (not at the start or the end, \
          not a Windows device name); profile names are one plain folder name"
     )]
     InvalidName(String),
@@ -119,6 +119,7 @@ mod tests {
 
         let name = PathsError::InvalidName("Bad Name".to_owned()).to_string();
         assert!(name.contains("Bad Name"), "{name}");
+        assert!(name.contains("start or the end"), "{name}");
     }
 
     #[test]
