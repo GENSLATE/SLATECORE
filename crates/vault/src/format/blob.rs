@@ -15,6 +15,8 @@
 //! | 32 | 19 | stream nonce prefix |
 //! | 51 | 13 | reserved, zero |
 
+// cspell:ignore gsvfile
+
 use super::{FORMAT_VERSION, array, u16_at, u32_at};
 use crate::error::{VaultError, tamper};
 

@@ -10,7 +10,7 @@
 //! process mid-unlock does not yield a free guess.
 
 use std::fs;
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -46,16 +46,29 @@ pub(crate) struct Attempt {
     previous: u32,
 }
 
+/// Longest `vault.guard` that is read; the file this module writes is under 100 bytes.
+const MAX_GUARD_BYTES: u64 = 1024;
+
+/// The guard file's bytes, or `None` when it is missing, unreadable or larger than the cap.
+fn read_guard(path: &std::path::Path) -> Option<Vec<u8>> {
+    let file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(MAX_GUARD_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= MAX_GUARD_BYTES).then_some(bytes)
+}
+
 fn wall_ms(t: SystemTime) -> u64 {
     t.duration_since(UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 impl Throttle {
-    /// Restores the persisted state. A missing, unreadable or corrupt file means zero failures.
+    /// Restores the persisted state. A missing, unreadable, oversized or corrupt file means zero
+    /// failures.
     pub(crate) fn load(path: PathBuf, now: Instant, now_wall: SystemTime) -> Self {
-        let guard = fs::read(&path)
-            .ok()
+        let guard = read_guard(&path)
             .and_then(|bytes| serde_json::from_slice::<GuardFile>(&bytes).ok())
             .filter(|g| g.v == 1);
         let Some(guard) = guard else {

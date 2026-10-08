@@ -124,7 +124,8 @@ impl Vault {
         Ok(report)
     }
 
-    fn remove_blobs(&self, blobs: &[[u8; 16]]) {
+    /// Deletes blobs no index references (best effort).
+    pub(super) fn remove_blobs(&self, blobs: &[[u8; 16]]) {
         for blob in blobs {
             let _ = fs::remove_file(self.layout.blob(blob));
         }
@@ -306,8 +307,8 @@ impl Vault {
         if (!staged.is_empty() || !new_files.is_empty())
             && let Err(e) = self.commit(unlocked, next)
         {
-            drop(inner);
-            self.remove_blobs(&all_new);
+            // The write may have reached the disk: keep the new blobs; the next unlock's
+            // garbage collection removes them if the commit did not land.
             return Err(e);
         }
         update_registry(unlocked, &staged, new_files, &forget);

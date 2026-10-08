@@ -7,8 +7,9 @@
 //! crash never leaves the vault unreadable. Opened files are decrypted into a session folder
 //! that is synced back and wiped on lock. Design and threat model: `research/vault.md`.
 //!
-//! Use [`Vault`]; the [`format`], [`crypto`], [`kdf`] and [`throttle`] modules expose the pure
-//! building blocks for known-answer tests and tooling.
+//! Use [`Vault`], [`VaultConfig`] and [`KdfParams`]. The `format`, `crypto`, `kdf` and
+//! `throttle` modules are public only so the integration tests can check known answers and
+//! golden vectors; they are hidden from the documentation and are not a stable API.
 //!
 //! What this does not protect against (state it in the UI): a forgotten password (no recovery),
 //! malware on the PC while unlocked, plaintext left on flash media by the session folder or by
@@ -23,13 +24,17 @@ use std::time::{Duration, SystemTime};
 
 pub use secrecy::{ExposeSecret, SecretBox, SecretString};
 
+#[doc(hidden)]
 pub mod crypto;
 mod error;
+#[doc(hidden)]
 pub mod format;
+#[doc(hidden)]
 pub mod kdf;
 mod path;
 mod session;
 mod store;
+#[doc(hidden)]
 pub mod throttle;
 mod vault;
 
@@ -106,6 +111,8 @@ pub struct VaultStatus {
 #[derive(Clone, Debug, Default)]
 pub struct StartupReport {
     pub stale_files_wiped: usize,
+    /// Session files that could not be wiped, then any entry of the session root that is not
+    /// a session folder (named by an 8-hex-digit session id); those are never touched.
     pub stale_files_left: Vec<PathBuf>,
 }
 

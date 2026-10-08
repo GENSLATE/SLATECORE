@@ -1,5 +1,7 @@
 //! Logical names live only in the encrypted index (N1 to N4, N6, N7).
 
+// cspell:ignore conin conout
+
 mod common;
 
 use std::fs;
@@ -25,7 +27,7 @@ fn unicode_and_long_names_roundtrip_via_index() -> TestResult {
         "\u{65e5}\u{672c}\u{8a9e}\u{306e}\u{30d5}\u{30a1}\u{30a4}\u{30eb}.txt".to_owned(), // CJK
         "\u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{645}\u{631}\u{62d}\u{628}\u{627}.txt".to_owned(), // RTL
         "emoji \u{1F600}\u{1F389}\u{1F468}\u{200D}\u{1F469}.txt".to_owned(), // surrogate pairs, ZWJ
-        "\u{ff26}\u{ff55}\u{ff4c}\u{ff4c}\u{ff57}\u{ff49}\u{ff44}\u{ff54}\u{ff48}".to_owned(), // fullwidth
+        "\u{ff26}\u{ff55}\u{ff4c}\u{ff4c}\u{ff57}\u{ff49}\u{ff44}\u{ff54}\u{ff48}".to_owned(), // full-width letters
         long_ascii.clone(),
         long_emoji.clone(),
     ];
@@ -138,6 +140,10 @@ fn illegal_names_rejected() -> TestResult {
         "lpt\u{b3}.txt",
         "Aux",
         "PRN.x",
+        "COM0",
+        "lpt0.txt",
+        "CONIN$",
+        "conout$.log",
         "a\u{0}b",
         "tab\there",
         "bell\u{7}",
@@ -152,7 +158,9 @@ fn illegal_names_rejected() -> TestResult {
         "CONSOLE",
         "con-tent.txt",
         "COM10",
-        "LPT0",
+        "LPT00",
+        "CONIN",
+        "conin$x",
         ".hidden",
         "a.b.c",
         "x y",

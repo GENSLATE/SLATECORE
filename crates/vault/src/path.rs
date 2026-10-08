@@ -5,6 +5,8 @@
 //! Windows file system: components of 1 to 255 UTF-16 units, at most 16 levels, at most 1024
 //! UTF-16 units in total, no reserved characters or device names, no trailing space or period.
 
+// cspell:ignore conin conout rfind rsplit
+
 use zeroize::Zeroize;
 
 use crate::error::VaultError;
@@ -17,11 +19,16 @@ pub(crate) const MAX_DEPTH: usize = 16;
 pub(crate) const MAX_PATH_UNITS: usize = 1024;
 
 const RESERVED_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+/// Device names Windows reserves, with or without an extension (Microsoft "Naming Files, Paths,
+/// and Namespaces": `COM0` and `LPT0` included, plus the console names `CONIN$` and `CONOUT$`).
 const RESERVED_NAMES: &[&str] = &[
     "con",
     "prn",
     "aux",
     "nul",
+    "conin$",
+    "conout$",
+    "com0",
     "com1",
     "com2",
     "com3",
@@ -34,6 +41,7 @@ const RESERVED_NAMES: &[&str] = &[
     "com\u{b9}",
     "com\u{b2}",
     "com\u{b3}",
+    "lpt0",
     "lpt1",
     "lpt2",
     "lpt3",

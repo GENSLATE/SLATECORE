@@ -1,5 +1,7 @@
 //! Tampering, truncation, swapping and rollback (T1 to T8, P6, P8).
 
+// cspell:ignore gvpart
+
 mod common;
 
 use std::fs;
@@ -7,7 +9,6 @@ use std::path::{Path, PathBuf};
 
 use common::{Fixture, OTHER_PASSWORD, PASSWORD, TestResult, pseudo_random, pw};
 use genslate_vault::format::header::HeaderSlot;
-use genslate_vault::format::index::IndexSlotHeader;
 use genslate_vault::{LockPolicy, Problem, Vault, VaultError, VaultPath};
 
 const C: usize = 65_536;
@@ -231,10 +232,6 @@ fn swapped_blobs_rejected() -> TestResult {
     Ok(())
 }
 
-fn index_generation(path: &Path) -> Result<u64, Box<dyn std::error::Error>> {
-    Ok(IndexSlotHeader::decode(&fs::read(path)?)?.generation)
-}
-
 #[test]
 fn rollback_to_older_generation_rejected_when_newer_slot_valid() -> TestResult {
     let fixture = Fixture::new()?;
@@ -247,20 +244,15 @@ fn rollback_to_older_generation_rejected_when_newer_slot_valid() -> TestResult {
     fixture.import_bytes(&vault, "", "a.txt", b"first")?; // index generation 2 -> slot A
     let old_index_b = fs::read(&index_b)?; // generation 1
     fixture.import_bytes(&vault, "", "b.txt", b"second")?; // generation 3 -> slot B
-    assert_eq!(index_generation(&index_a)?, 2);
-    assert_eq!(index_generation(&index_b)?, 3);
+    assert_eq!(common::index_generation(&index_a)?, 2);
+    assert_eq!(common::index_generation(&index_b)?, 3);
     vault.change_password(&pw(PASSWORD), &pw(OTHER_PASSWORD))?;
     vault.lock(LockPolicy::SyncThenWipe)?;
 
-    // Index: an older generation in the other slot is ignored...
-    fs::write(&index_a, &old_index_b)?;
-    // ...and relabelling it with a higher generation breaks its authentication.
-    let mut relabelled = old_index_b.clone();
-    relabelled[12..20].copy_from_slice(&99u64.to_le_bytes());
-    fs::write(&index_a, &relabelled)?;
-
     // Header: the stale slot with the old password must not be used as a fallback.
     fs::write(&header_b, &old_header)?;
+    // Index: a valid but older generation in the other slot is ignored.
+    fs::write(&index_a, &old_index_b)?;
     drop(vault);
     let vault = fixture.open()?;
     assert!(matches!(
@@ -273,13 +265,29 @@ fn rollback_to_older_generation_rejected_when_newer_slot_valid() -> TestResult {
         vec!["a.txt".to_owned(), "b.txt".to_owned()]
     );
     assert_eq!(fixture.export_bytes(&vault, "b.txt")?, b"second");
+    assert_eq!(
+        common::index_generation(&index_a)?,
+        1,
+        "an older valid slot is a fallback, not damage"
+    );
+    vault.lock(LockPolicy::SyncThenWipe)?;
+
+    // Relabelling the older slot with a higher generation breaks its authentication.
+    let mut relabelled = old_index_b.clone();
+    relabelled[12..20].copy_from_slice(&99u64.to_le_bytes());
+    fs::write(&index_a, &relabelled)?;
+    vault.unlock(&pw(OTHER_PASSWORD))?;
+    assert_eq!(
+        common::names(&vault, "")?,
+        vec!["a.txt".to_owned(), "b.txt".to_owned()]
+    );
 
     // The successful unlock healed the stale header slot and the broken index slot.
     assert_eq!(
         fs::read(&header_b)?,
         fs::read(fixture.root().join("vault.a.gvh"))?
     );
-    assert_eq!(index_generation(&index_a)?, 3);
+    assert_eq!(common::index_generation(&index_a)?, 3);
     Ok(())
 }
 

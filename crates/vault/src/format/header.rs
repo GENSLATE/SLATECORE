@@ -16,6 +16,8 @@
 //! | 92 | 48 | wrapped vault key (32 + 16-byte tag) |
 //! | 140 | 16 | `BLAKE2b-128` of bytes `[0, 140)` (corruption check, not security) |
 
+// cspell:ignore gsvault
+
 use blake2::digest::consts::U16;
 use blake2::{Blake2b, Digest};
 

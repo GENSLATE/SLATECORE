@@ -1,5 +1,7 @@
 //! Round trips, password handling and API state rules (F6, F7, P1 to P5, P7, C6, H1).
 
+// cspell:ignore gvpart
+
 mod common;
 
 use std::fs;
@@ -9,7 +11,7 @@ use genslate_vault::format::blob::encrypted_len;
 use genslate_vault::format::header::HeaderSlot;
 use genslate_vault::{
     Conflict, EntryKind, ExposeSecret, KdfParams, LockPolicy, Vault, VaultConfig, VaultError,
-    VaultPath, VaultState, kdf,
+    VaultPath, VaultState, crypto, kdf,
 };
 
 const C: usize = 65_536;
@@ -307,9 +309,18 @@ fn debug_output_never_contains_password_or_key() -> TestResult {
     vault.create(&pw(secret_password))?;
     fixture.import_bytes(&vault, "", secret_name, b"payload")?;
 
-    let kek = kdf::derive_kek(&pw(secret_password), &[1u8; 16], KdfParams::MINIMUM)?;
-    let key_hex = common::hex(kek.expose_secret());
-    let key_dec = format!("{:?}", kek.expose_secret());
+    // The real secrets of this vault: its KEK and the vault key it unwraps.
+    let header = HeaderSlot::decode(&fs::read(fixture.root().join("vault.a.gvh"))?)?;
+    let kek = kdf::derive_kek(&pw(secret_password), &header.salt, header.kdf)?;
+    let vault_key = crypto::unwrap_vault_key(
+        &kek,
+        &header.wrap_nonce,
+        &header.wrapped_vk,
+        &header.wrap_aad(),
+    )?;
+    let secrets = [kek.expose_secret(), vault_key.expose_secret()];
+    let key_hex: Vec<String> = secrets.iter().map(|k| common::hex(&k[..])).collect();
+    let key_dec: Vec<String> = secrets.iter().map(|k| format!("{k:?}")).collect();
 
     let wrong = vault.change_password(&pw("not-the-password-1"), &pw(secret_password));
     let errors = [
@@ -326,6 +337,7 @@ fn debug_output_never_contains_password_or_key() -> TestResult {
         format!("{:?}", vault.status()),
         format!("{:?}", pw(secret_password)),
         format!("{kek:?}"),
+        format!("{vault_key:?}"),
         format!("{wrong:?}"),
         format!("{:?}", KdfParams::STANDARD),
     ];
@@ -336,11 +348,10 @@ fn debug_output_never_contains_password_or_key() -> TestResult {
     for out in &outputs {
         assert!(!out.contains(secret_password), "password leaked: {out}");
         assert!(!out.contains(secret_name), "file name leaked: {out}");
-        assert!(!out.contains(&key_hex), "key leaked: {out}");
-        assert!(
-            !out.contains(&key_dec[1..key_dec.len() - 1]),
-            "key leaked: {out}"
-        );
+        for (hex, dec) in key_hex.iter().zip(&key_dec) {
+            assert!(!out.contains(hex.as_str()), "key leaked: {out}");
+            assert!(!out.contains(&dec[1..dec.len() - 1]), "key leaked: {out}");
+        }
         assert!(
             !has_byte_list(out),
             "something that looks like key bytes leaked: {out}"
@@ -437,5 +448,119 @@ fn create_dir_delete_and_verify() -> TestResult {
         vault.delete(&VaultPath::parse("Taxes")?),
         Err(VaultError::NotFound(_))
     ));
+    Ok(())
+}
+
+#[test]
+fn half_written_password_change_reports_what_is_on_disk() -> TestResult {
+    const THIRD_PASSWORD: &str = "yet another passphrase";
+    // (a) Slot B cannot be written, but slot A already holds the new key wrap: the change
+    // happened, and the in-memory header follows it.
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    let header_b = fixture.root().join("vault.b.gvh");
+    fs::remove_file(&header_b)?;
+    fs::create_dir(&header_b)?;
+    vault.change_password(&pw(PASSWORD), &pw(OTHER_PASSWORD))?;
+    vault.change_password(&pw(OTHER_PASSWORD), &pw(THIRD_PASSWORD))?;
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    assert!(matches!(
+        vault.unlock(&pw(PASSWORD)),
+        Err(VaultError::WrongPassword)
+    ));
+    vault.unlock(&pw(THIRD_PASSWORD))?;
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    drop(vault);
+    fs::remove_dir(&header_b)?;
+    let vault = fixture.open()?;
+    vault.unlock(&pw(THIRD_PASSWORD))?;
+    assert!(header_b.is_file(), "the missing slot is healed");
+
+    // (b) Slot A cannot be written: nothing changed and the old password still works.
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    let header_a = fixture.root().join("vault.a.gvh");
+    fs::remove_file(&header_a)?;
+    fs::create_dir(&header_a)?;
+    let change = vault.change_password(&pw(PASSWORD), &pw(OTHER_PASSWORD));
+    assert!(matches!(change, Err(VaultError::Io { .. })), "{change:?}");
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    vault.unlock(&pw(PASSWORD))?;
+    Ok(())
+}
+
+#[test]
+fn export_refuses_vault_and_session_folders_and_never_reuses_a_staging_file() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    fixture.import_bytes(&vault, "", "a.txt", b"exported")?;
+    let path = VaultPath::parse("a.txt")?;
+    for dest in [
+        fixture.root().join("a.txt"),
+        fixture.files_dir().join("a.txt"),
+        fixture.session_root().join("a.txt"),
+        fixture.root().to_path_buf(),
+    ] {
+        let result = vault.export(&path, &dest, None);
+        assert!(
+            matches!(result, Err(VaultError::InvalidPath(_))),
+            "{}: {result:?}",
+            dest.display()
+        );
+    }
+    assert!(!fixture.root().join("a.txt").exists());
+    assert_eq!(vault.status().foreign_items, 0);
+
+    // A file already sitting at the staging name is someone else's: never truncated or moved.
+    let scratch = fixture.scratch()?;
+    let dest = scratch.join("out.txt");
+    let part = scratch.join("out.txt.gvpart");
+    fs::write(&part, b"someone else's file")?;
+    vault.export(&path, &dest, None)?;
+    assert_eq!(fs::read(&dest)?, b"exported");
+    assert_eq!(fs::read(&part)?, b"someone else's file");
+
+    let victim = scratch.join("victim.txt");
+    fs::write(&victim, b"VICTIM")?;
+    let dest = scratch.join("out2.txt");
+    if common::symlink_file(&victim, &scratch.join("out2.txt.gvpart"))? {
+        vault.export(&path, &dest, None)?;
+        assert_eq!(fs::read(&dest)?, b"exported");
+        assert_eq!(
+            fs::read(&victim)?,
+            b"VICTIM",
+            "a link is never written through"
+        );
+    }
+    let staged: Vec<_> = fs::read_dir(&scratch)?
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".gvpart") && n != "out.txt.gvpart" && n != "out2.txt.gvpart")
+        .collect();
+    common::assert_empty(&staged);
+    Ok(())
+}
+
+#[test]
+fn overlapping_vault_and_session_folders_are_refused() -> TestResult {
+    let fixture = Fixture::new()?;
+    let mut inside = fixture.config.clone();
+    inside.session_root = fixture.root().join("session");
+    let opened = Vault::open(inside);
+    assert!(
+        matches!(opened, Err(VaultError::InvalidConfig(_))),
+        "{opened:?}"
+    );
+    assert!(
+        !fixture.root().join("session").exists(),
+        "nothing is created inside the vault folder"
+    );
+    let mut around = fixture.config.clone();
+    around.session_root = fixture.dir.path().join("storage");
+    let opened = Vault::open(around);
+    assert!(
+        matches!(opened, Err(VaultError::InvalidConfig(_))),
+        "{opened:?}"
+    );
     Ok(())
 }

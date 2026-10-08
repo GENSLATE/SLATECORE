@@ -1,5 +1,7 @@
 //! The session folder: stale cleanup, sync and lock (C5, S1 to S7, N5).
 
+// cspell:ignore crdownload
+
 mod common;
 
 use std::fs;
@@ -34,28 +36,96 @@ fn stale_session_folder_wiped_on_open() -> TestResult {
     let mut perms = fs::metadata(&read_only)?.permissions();
     perms.set_readonly(true);
     fs::set_permissions(&read_only, perms)?;
-    fs::write(
-        fixture.session_root().join("loose.txt"),
-        b"PLAINTEXT-MARKER-5",
-    )?;
+    // Not a session folder: left alone and reported.
+    let loose = fixture.session_root().join("loose.txt");
+    fs::write(&loose, b"NOT-OURS")?;
 
     let (vault, report) = Vault::open(fixture.config.clone())?;
-    assert_eq!(report.stale_files_wiped, 5);
-    assert!(
-        report.stale_files_left.is_empty(),
-        "{:?}",
-        report.stale_files_left
-    );
+    assert_eq!(report.stale_files_wiped, 4);
+    assert_eq!(report.stale_files_left, vec![loose.clone()]);
     assert!(
         fixture.session_root().is_dir(),
         "the session root itself stays"
     );
-    assert_eq!(
-        fs::read_dir(fixture.session_root())?.count(),
-        0,
-        "nothing left inside"
-    );
+    assert!(!stale.exists(), "the stale session folder is gone");
+    assert_eq!(fs::read(&loose)?, b"NOT-OURS");
     assert_eq!(vault.status().state, VaultState::Uninitialized);
+    Ok(())
+}
+
+#[test]
+fn session_wipe_stays_inside_session_folders() -> TestResult {
+    let fixture = Fixture::new()?;
+    let outside_dir = fixture.scratch()?.join("outside");
+    fs::create_dir_all(&outside_dir)?;
+    let outside_file = outside_dir.join("keep.txt");
+    fs::write(&outside_file, b"KEEP-ME")?;
+    let shared = fixture.scratch()?.join("shared.txt");
+    fs::write(&shared, b"SHARED-INODE")?;
+
+    let stale = fixture.session_root().join("0badc0de");
+    fs::create_dir_all(stale.join("0001"))?;
+    fs::write(stale.join("0001").join("doc.txt"), b"PLAINTEXT")?;
+    fs::hard_link(&shared, stale.join("0001").join("hard.txt"))?;
+    common::symlink_file(&outside_file, &stale.join("0001").join("link.txt"))?;
+    common::symlink_dir(&outside_dir, &stale.join("0002"))?;
+    // An entry named like a session that is itself a link to an outside folder.
+    let session_link = fixture.session_root().join("feedf00d");
+    let root_link = common::symlink_dir(&outside_dir, &session_link)?;
+    // Not a session id: never touched.
+    let notes = fixture.session_root().join("notes");
+    fs::create_dir_all(&notes)?;
+    fs::write(notes.join("todo.txt"), b"NOT-A-SESSION")?;
+
+    let (_vault, report) = Vault::open(fixture.config.clone())?;
+    assert!(!stale.exists(), "the stale session folder is gone");
+    assert_eq!(fs::read(&outside_file)?, b"KEEP-ME");
+    assert_eq!(fs::read_dir(&outside_dir)?.count(), 1);
+    if cfg!(unix) {
+        // Windows reports no link count to safe Rust; see the task report.
+        assert_eq!(
+            fs::read(&shared)?,
+            b"SHARED-INODE",
+            "a hard-linked file is unlinked, not zeroed"
+        );
+    }
+    if root_link {
+        assert!(
+            fs::symlink_metadata(&session_link).is_err(),
+            "the link itself is removed"
+        );
+    }
+    assert_eq!(fs::read(notes.join("todo.txt"))?, b"NOT-A-SESSION");
+    assert_eq!(report.stale_files_left, vec![notes]);
+    Ok(())
+}
+
+#[test]
+fn unreadable_edit_blocks_sync_then_wipe_and_force_reports_it() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    fixture.import_bytes(&vault, "", "a.txt", b"original")?;
+    let session_file = vault.open_in_session(&VaultPath::parse("a.txt")?, None)?;
+    // Something that cannot be read back as the file, even by root (research S8).
+    fs::remove_file(&session_file)?;
+    fs::create_dir(&session_file)?;
+    fs::write(session_file.join("inner.txt"), b"x")?;
+
+    match vault.lock(LockPolicy::SyncThenWipe) {
+        Err(VaultError::UnsyncedEdits(paths)) => {
+            assert_eq!(paths, vec![VaultPath::parse("a.txt")?]);
+        }
+        other => return Err(format!("expected UnsyncedEdits, got {other:?}").into()),
+    }
+    assert_eq!(vault.status().state, VaultState::Unlocked);
+    assert!(session_file.exists(), "nothing is wiped while unlocked");
+
+    let report = vault.lock(LockPolicy::Force)?;
+    assert_eq!(report.unsynced, vec![VaultPath::parse("a.txt")?]);
+    assert_eq!(count_files(fixture.session_root())?, 0);
+    assert_eq!(vault.status().state, VaultState::Locked);
+    vault.unlock(&pw(PASSWORD))?;
+    assert_eq!(fixture.export_bytes(&vault, "a.txt")?, b"original");
     Ok(())
 }
 

@@ -5,6 +5,8 @@
 //! a last-chunk flag, so reordered, dropped, appended or truncated chunks fail authentication.
 //! Plaintext buffers are wiped after use.
 
+// cspell:ignore decryptor
+
 use std::io::{self, Read, Write};
 
 use aead_stream::aead::array::Array;

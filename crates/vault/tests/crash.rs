@@ -1,12 +1,15 @@
-//! Crash safety, garbage collection and foreign items (C1 to C4, C7, P6).
+//! Crash safety, slot choice, garbage collection and foreign items (C1 to C4, C7, P6).
+
+// cspell:ignore gsvault
 
 mod common;
 
 use std::fs;
+use std::time::{Duration, SystemTime};
 
 use common::{Fixture, OTHER_PASSWORD, PASSWORD, TestResult, pw};
 use genslate_vault::format::header::HeaderSlot;
-use genslate_vault::{LockPolicy, VaultPath, VaultState};
+use genslate_vault::{Conflict, LockPolicy, VaultError, VaultPath, VaultState};
 
 #[test]
 fn crash_between_blob_write_and_index_commit_recovers_previous_index() -> TestResult {
@@ -84,12 +87,7 @@ fn crash_after_commit_before_old_blob_delete_is_cleaned() -> TestResult {
     let old_bytes = fs::read(&old_blob)?;
     let src = fixture.scratch()?.join("a.txt");
     fs::write(&src, b"new")?;
-    vault.import(
-        &src,
-        &VaultPath::root(),
-        genslate_vault::Conflict::Replace,
-        None,
-    )?;
+    vault.import(&src, &VaultPath::root(), Conflict::Replace, None)?;
     assert!(
         !old_blob.exists(),
         "a replaced blob is deleted after the commit"
@@ -202,5 +200,121 @@ fn plain_file_dropped_in_vault_is_ingested_and_original_removed_on_unlock() -> T
             );
         }
     }
+    Ok(())
+}
+
+#[test]
+fn new_blobs_survive_an_unclear_commit_until_the_next_unlock() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    fixture.import_bytes(&vault, "", "a.txt", b"committed")?; // generation 2 -> slot A
+    let session_file = vault.open_in_session(&VaultPath::parse("a.txt")?, None)?;
+    // Generation 3 goes to slot B: make that write fail.
+    let index_b = fixture.root().join("index.b.gvi");
+    let saved = fs::read(&index_b)?;
+    fs::remove_file(&index_b)?;
+    fs::create_dir(&index_b)?;
+
+    let src = fixture.scratch()?.join("b.txt");
+    fs::write(&src, b"not committed")?;
+    let import = vault.import(&src, &VaultPath::root(), Conflict::Fail, None);
+    assert!(matches!(import, Err(VaultError::Io { .. })), "{import:?}");
+    assert_eq!(
+        fixture.blobs()?.len(),
+        2,
+        "the write may have landed, so its blob stays"
+    );
+    fs::write(&session_file, b"edited")?;
+    // Older than the settle time, so this sync pass picks it up.
+    fs::File::options()
+        .write(true)
+        .open(&session_file)?
+        .set_modified(SystemTime::now() - Duration::from_secs(120))?;
+    let sync = vault.sync_session();
+    assert!(matches!(sync, Err(VaultError::Io { .. })), "{sync:?}");
+    assert_eq!(fixture.blobs()?.len(), 3);
+    assert_eq!(vault.verify(None)?.orphan_blobs, 2);
+
+    vault.lock(LockPolicy::Force)?;
+    fs::remove_dir(&index_b)?;
+    fs::write(&index_b, &saved)?;
+    vault.unlock(&pw(PASSWORD))?;
+    assert_eq!(common::names(&vault, "")?, vec!["a.txt".to_owned()]);
+    assert_eq!(fixture.export_bytes(&vault, "a.txt")?, b"committed");
+    assert_eq!(
+        fixture.blobs()?.len(),
+        1,
+        "the next unlock collected the orphans"
+    );
+    Ok(())
+}
+
+#[test]
+fn commit_never_overwrites_the_slot_holding_the_newest_generation() -> TestResult {
+    let fixture = Fixture::new()?;
+    let vault = fixture.create()?;
+    fixture.import_bytes(&vault, "", "a.txt", b"a")?; // generation 2 -> slot A
+    fixture.import_bytes(&vault, "", "b.txt", b"b")?; // generation 3 -> slot B
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    let index_a = fixture.root().join("index.a.gvi");
+    let index_b = fixture.root().join("index.b.gvi");
+
+    // A manual restore swaps the slots: generation 3 now sits in A, generation 2 in B.
+    let (gen2, gen3) = (fs::read(&index_a)?, fs::read(&index_b)?);
+    fs::write(&index_a, &gen3)?;
+    fs::write(&index_b, &gen2)?;
+    vault.unlock(&pw(PASSWORD))?;
+    fixture.import_bytes(&vault, "", "c.txt", b"c")?; // generation 4
+    assert_eq!(
+        common::index_generation(&index_a)?,
+        3,
+        "the previous winner stays as the fallback"
+    );
+    assert_eq!(common::index_generation(&index_b)?, 4);
+
+    // Tearing generation 4 falls back to generation 3.
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    let full = fs::read(&index_b)?;
+    fs::write(&index_b, &full[..full.len() / 2])?;
+    vault.unlock(&pw(PASSWORD))?;
+    assert_eq!(
+        common::names(&vault, "")?,
+        vec!["a.txt".to_owned(), "b.txt".to_owned()]
+    );
+    Ok(())
+}
+
+#[test]
+fn torn_create_leaves_a_vault_that_can_be_created_again() -> TestResult {
+    let fixture = Fixture::new()?;
+    // A crash while create() wrote its first header: index slots and a torn temporary header.
+    fs::create_dir_all(fixture.files_dir())?;
+    fs::write(fixture.root().join("index.a.gvi"), b"torn index")?;
+    fs::write(fixture.root().join("index.b.gvi"), b"torn index")?;
+    fs::write(fixture.root().join("vault.a.gvh.tmp"), b"GSVAULT\0torn")?;
+    let vault = fixture.open()?;
+    let status = vault.status();
+    assert_eq!(status.state, VaultState::Uninitialized);
+    assert_eq!(
+        status.foreign_items, 0,
+        "create's own leftovers are not foreign"
+    );
+
+    vault.create(&pw(PASSWORD))?;
+    common::assert_empty(&common::names(&vault, "")?);
+    assert!(!fixture.root().join("vault.a.gvh.tmp").exists());
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    vault.unlock(&pw(PASSWORD))?;
+
+    // A crash after the first header slot is in place: the vault exists and B is healed.
+    let other = Fixture::new()?;
+    let vault = other.create()?;
+    vault.lock(LockPolicy::SyncThenWipe)?;
+    drop(vault);
+    fs::remove_file(other.root().join("vault.b.gvh"))?;
+    let vault = other.open()?;
+    assert_eq!(vault.status().state, VaultState::Locked);
+    vault.unlock(&pw(PASSWORD))?;
+    assert!(other.root().join("vault.b.gvh").exists());
     Ok(())
 }

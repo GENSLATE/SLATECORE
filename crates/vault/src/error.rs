@@ -65,6 +65,8 @@ pub enum VaultError {
     },
     #[error("internal error: {0}")]
     Internal(&'static str),
+    #[error("invalid vault configuration: {0}")]
+    InvalidConfig(&'static str),
 }
 
 impl fmt::Debug for VaultError {
@@ -106,6 +108,7 @@ impl fmt::Debug for VaultError {
                 .field("source", source)
                 .finish(),
             Self::Internal(what) => f.debug_tuple("Internal").field(what).finish(),
+            Self::InvalidConfig(what) => f.debug_tuple("InvalidConfig").field(what).finish(),
         }
     }
 }

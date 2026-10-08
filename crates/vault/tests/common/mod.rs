@@ -1,6 +1,8 @@
 //! Helpers shared by the vault integration tests.
 //!
 //! Every test returns [`TestResult`] and uses `?`: the workspace denies `unwrap`/`expect`.
+
+// cspell:ignore hexdigit mklink
 #![allow(dead_code)] // each test file uses a different subset
 
 use std::collections::BTreeMap;
@@ -9,6 +11,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use genslate_vault::format::index::IndexSlotHeader;
 use genslate_vault::{KdfParams, SecretString, Vault, VaultConfig, VaultError, VaultPath};
 
 pub type TestResult = Result<(), Box<dyn Error>>;
@@ -129,7 +132,7 @@ pub fn unique() -> u64 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Deterministic pseudo-random bytes (xorshift64*), so tests need no `rand`.
+/// Deterministic pseudo-random bytes (xor-shift, 64-bit), so tests need no `rand`.
 pub fn pseudo_random(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
     let mut out = Vec::with_capacity(len);
@@ -182,7 +185,7 @@ pub fn hex(bytes: &[u8]) -> String {
     })
 }
 
-pub fn unhex(s: &str) -> Vec<u8> {
+pub fn parse_hex(s: &str) -> Vec<u8> {
     let digits: Vec<u8> = s
         .bytes()
         .filter(u8::is_ascii_hexdigit)
@@ -218,4 +221,49 @@ pub fn names(vault: &Vault, dir: &str) -> Result<Vec<String>, Box<dyn Error>> {
 #[track_caller]
 pub fn assert_empty<T: std::fmt::Debug>(items: &[T]) {
     assert!(items.is_empty(), "expected nothing, got {items:?}");
+}
+
+/// The generation stored in an index slot file.
+pub fn index_generation(path: &Path) -> Result<u64, Box<dyn Error>> {
+    Ok(IndexSlotHeader::decode(&fs::read(path)?)?.generation)
+}
+
+/// Creates a symbolic link to a file. `Ok(false)` when Windows refuses it for lack of the
+/// privilege, so the caller can skip that part of a test.
+pub fn symlink_file(target: &Path, link: &Path) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link)?;
+        Ok(true)
+    }
+    #[cfg(windows)]
+    {
+        match std::os::windows::fs::symlink_file(target, link) {
+            Ok(()) => Ok(true),
+            Err(e) if e.raw_os_error() == Some(1314) => Ok(false), // ERROR_PRIVILEGE_NOT_HELD
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// Creates a link to a folder: a symbolic link on Unix, a junction on Windows (no privilege
+/// needed). `Ok(false)` when it could not be made.
+pub fn symlink_dir(target: &Path, link: &Path) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link)?;
+        Ok(true)
+    }
+    #[cfg(windows)]
+    {
+        let status = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .stdout(std::process::Stdio::null())
+            .status()?;
+        Ok(status.success())
+    }
 }

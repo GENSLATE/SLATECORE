@@ -5,7 +5,9 @@
 //! user-mode program can do. Flash wear levelling, file-system journals and the opening
 //! program's own copies can still hold plaintext.
 
-use std::fs::{self, OpenOptions};
+// cspell:ignore crdownload rfind
+
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -141,17 +143,38 @@ pub(crate) fn session_file_name(folder: &Path, name: &str) -> Result<String, Vau
 #[derive(Debug, Default)]
 pub(crate) struct WipeReport {
     pub(crate) wiped: usize,
+    /// Session files and folders that could not be removed.
     pub(crate) left: Vec<PathBuf>,
+    /// Entries in the session root that are not session folders: never touched.
+    pub(crate) foreign: Vec<PathBuf>,
 }
 
-/// Wipes everything inside `dir`, keeping `dir` itself. A missing `dir` is not an error.
-pub(crate) fn wipe_contents(dir: &Path) -> WipeReport {
+/// `true` for the name of a session folder (`Session::sid`: 8 lowercase hex digits).
+pub(crate) fn is_session_id(name: &str) -> bool {
+    name.len() == 8 && name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Wipes every session folder in `session_root`, keeping the root itself. Only entries named
+/// like a session id are touched (the root is configurable, so it may hold other things);
+/// everything else is listed in [`WipeReport::foreign`]. A missing root is not an error.
+pub(crate) fn wipe_sessions(session_root: &Path) -> WipeReport {
     let mut report = WipeReport::default();
-    let Ok(entries) = fs::read_dir(dir) else {
+    let Ok(entries) = fs::read_dir(session_root) else {
         return report;
     };
-    for entry in entries.flatten() {
-        wipe_path(&entry.path(), &mut report);
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        let ours = entry.file_name().to_str().is_some_and(is_session_id)
+            && entry
+                .file_type()
+                .is_ok_and(|t| t.is_dir() || t.is_symlink());
+        if ours {
+            wipe_path(&path, &mut report);
+        } else {
+            report.foreign.push(path);
+        }
     }
     report
 }
@@ -176,12 +199,7 @@ pub(crate) fn wipe_path(path: &Path, report: &mut WipeReport) {
         }
     }
     for (file, meta) in files {
-        let result = if meta.file_type().is_symlink() {
-            fs::remove_file(&file).or_else(|_| fs::remove_dir(&file))
-        } else {
-            wipe_file(&file, &meta)
-        };
-        match result {
+        match wipe_file(&file, &meta) {
             Ok(()) => report.wiped += 1,
             Err(_) => report.left.push(file),
         }
@@ -195,10 +213,23 @@ pub(crate) fn wipe_path(path: &Path, report: &mut WipeReport) {
     }
 }
 
+/// Removes a directory entry without opening it: a link (never its target) or a folder link.
+fn unlink(path: &Path) -> io::Result<()> {
+    fs::remove_file(path).or_else(|_| fs::remove_dir(path))
+}
+
 /// Overwrite with zeros, sync, truncate, rename to a random name, delete (research/vault.md 6.6).
-fn wipe_file(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
-    make_writable(path, meta)?;
-    let mut file = OpenOptions::new().write(true).open(path)?;
+///
+/// Only a plain file with no other name is overwritten: a link, a hard-linked file (Unix; std
+/// reports no link count on Windows) or a file swapped for something else after it was listed
+/// is only unlinked, so nothing outside the session folder is ever written.
+pub(crate) fn wipe_file(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
+    if !meta.is_file() || has_other_names(meta) {
+        return unlink(path);
+    }
+    let Some(mut file) = open_for_wipe(path, meta)? else {
+        return unlink(path);
+    };
     let zeros = vec![0u8; 64 * 1024];
     let mut left = meta.len();
     while left > 0 {
@@ -219,23 +250,102 @@ fn wipe_file(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
     fs::remove_file(&target)
 }
 
-/// Clears the read-only attribute so the file can be overwritten.
-fn make_writable(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
-    let mut perms = meta.permissions();
-    if !perms.readonly() {
-        return Ok(());
+/// `true` when the file has another hard link (another name may be outside the session folder).
+fn has_other_names(meta: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        meta.nlink() > 1
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        false
+    }
+}
+
+/// Opens `path` for overwriting without following a link, clearing the read-only attribute if
+/// needed. `None` when what is now at `path` is not the plain file `listed` described.
+fn open_for_wipe(path: &Path, listed: &fs::Metadata) -> io::Result<Option<File>> {
+    match open_no_follow(path, true) {
+        Ok(file) => return still_the_same(file, listed),
+        Err(e)
+            if e.kind() != io::ErrorKind::PermissionDenied || !listed.permissions().readonly() =>
+        {
+            return Err(e);
+        }
+        Err(_) => {}
+    }
+    // Read-only: clear the attribute through a handle, so a swapped-in link is not followed.
+    let Some(handle) = still_the_same(open_no_follow(path, false)?, listed)? else {
+        return Ok(None);
+    };
+    handle.set_permissions(writable(listed.permissions()))?;
+    drop(handle);
+    still_the_same(open_no_follow(path, true)?, listed)
+}
+
+#[cfg(unix)]
+fn open_no_follow(path: &Path, write: bool) -> io::Result<File> {
+    // No `O_NOFOLLOW` without libc: a followed link is caught by `still_the_same`, which
+    // compares device and inode with what was listed before anything is written.
+    OpenOptions::new().read(!write).write(write).open(path)
+}
+
+#[cfg(windows)]
+fn open_no_follow(path: &Path, write: bool) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_READ_ATTRIBUTES: u32 = 0x0080;
+    const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+    let mut options = OpenOptions::new();
+    options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    if write {
+        options.write(true);
+    } else {
+        options.access_mode(FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES);
+    }
+    options.open(path)
+}
+
+/// `Some(file)` when the opened handle is the plain, singly linked file that was listed.
+fn still_the_same(file: File, listed: &fs::Metadata) -> io::Result<Option<File>> {
+    let opened = file.metadata()?;
+    if !opened.is_file() || has_other_names(&opened) {
+        return Ok(None);
     }
     #[cfg(unix)]
     {
+        use std::os::unix::fs::MetadataExt as _;
+        if (opened.dev(), opened.ino()) != (listed.dev(), listed.ino()) {
+            return Ok(None);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        let _ = listed;
+        if opened.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Ok(None);
+        }
+    }
+    Ok(Some(file))
+}
+
+/// `permissions` with writing allowed for the owner.
+fn writable(mut permissions: fs::Permissions) -> fs::Permissions {
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt as _;
-        perms.set_mode(0o600);
+        permissions.set_mode(permissions.mode() | 0o200);
     }
     #[cfg(not(unix))]
     {
         #[allow(clippy::permissions_set_readonly_false)] // Windows: clears FILE_ATTRIBUTE_READONLY
-        perms.set_readonly(false);
+        permissions.set_readonly(false);
     }
-    fs::set_permissions(path, perms)
+    permissions
 }
 
 /// Removes a working copy and, when it is then empty, its `<nnnn>` folder.

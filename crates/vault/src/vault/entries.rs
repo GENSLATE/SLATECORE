@@ -1,5 +1,7 @@
 //! Namespace operations: list, `create_dir`, rename, delete. Each is one index commit.
 
+// cspell:ignore rfind
+
 use std::fs;
 use std::time::{Duration, UNIX_EPOCH};
 

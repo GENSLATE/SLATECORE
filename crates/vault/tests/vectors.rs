@@ -1,10 +1,12 @@
 //! Golden vectors and known answers (research/vault.md Appendix A, tests F1 to F5, H5).
 
+// cspell:ignore gsvaulx nocapture
+
 mod common;
 
 use std::time::Instant;
 
-use common::{Fixture, PASSWORD, TestResult, hex, pw, unhex};
+use common::{Fixture, PASSWORD, TestResult, hex, parse_hex, pw};
 use genslate_vault::format::blob::{BLOB_HEADER_LEN, BlobHeader, encrypted_len};
 use genslate_vault::format::header::{HEADER_LEN, HeaderSlot};
 use genslate_vault::{ExposeSecret, KdfParams, SecretBox, VaultConfig, VaultError, crypto, kdf};
@@ -86,9 +88,9 @@ fn header_slot_golden_vector() -> TestResult {
     let encoded = slot.encode();
     assert_eq!(encoded.len(), HEADER_LEN);
     assert_eq!(HEADER_LEN, 156);
-    assert_eq!(hex(&encoded), hex(&unhex(GOLDEN_HEADER)));
+    assert_eq!(hex(&encoded), hex(&parse_hex(GOLDEN_HEADER)));
 
-    let parsed = HeaderSlot::decode(&unhex(GOLDEN_HEADER))?;
+    let parsed = HeaderSlot::decode(&parse_hex(GOLDEN_HEADER))?;
     assert_eq!(parsed, slot);
     let vk = crypto::unwrap_vault_key(
         &kek,
@@ -102,7 +104,7 @@ fn header_slot_golden_vector() -> TestResult {
 
 #[test]
 fn header_wrong_kek_is_wrong_password() -> TestResult {
-    let parsed = HeaderSlot::decode(&unhex(GOLDEN_HEADER))?;
+    let parsed = HeaderSlot::decode(&parse_hex(GOLDEN_HEADER))?;
     let wrong = kdf::derive_kek(&pw("not the password"), &KAT_SALT, parsed.kdf)?;
     let result = crypto::unwrap_vault_key(
         &wrong,
@@ -116,7 +118,7 @@ fn header_wrong_kek_is_wrong_password() -> TestResult {
 
 #[test]
 fn header_field_bounds_are_enforced() {
-    let golden = unhex(GOLDEN_HEADER);
+    let golden = parse_hex(GOLDEN_HEADER);
     // Each mutation re-computes the checksum so only the field rule can reject it.
     let reseal = |mut bytes: Vec<u8>| -> Vec<u8> {
         let check = blake2b16(&bytes[..140]);
@@ -181,6 +183,30 @@ fn header_field_bounds_are_enforced() {
             "offset {offset} value {value}"
         );
     }
+    // Each field in bounds, but together too much work for one unlock: refused before the KDF.
+    let costs = |m: u32, t: u32| {
+        let mut bytes = golden.clone();
+        bytes[40..44].copy_from_slice(&m.to_le_bytes());
+        bytes[44..48].copy_from_slice(&t.to_le_bytes());
+        HeaderSlot::decode(&reseal(bytes))
+    };
+    assert!(matches!(
+        costs(1_048_576, 64),
+        Err(VaultError::UnsupportedKdf)
+    ));
+    assert!(matches!(
+        costs(1_048_576, 5),
+        Err(VaultError::UnsupportedKdf)
+    ));
+    assert!(matches!(
+        costs(262_144, 17),
+        Err(VaultError::UnsupportedKdf)
+    ));
+    assert!(
+        costs(1_048_576, 4).is_ok(),
+        "the work cap itself is allowed"
+    );
+    assert!(costs(65_536, 64).is_ok());
 }
 
 #[test]
@@ -216,8 +242,8 @@ fn blob_golden_vector() -> TestResult {
         blob_id: seq::<16>(0xb0),
         stream_nonce: seq::<19>(0x70),
     };
-    assert_eq!(hex(&header.encode()), hex(&unhex(GOLDEN_BLOB_HEADER)));
-    assert_eq!(BlobHeader::decode(&unhex(GOLDEN_BLOB_HEADER))?, header);
+    assert_eq!(hex(&header.encode()), hex(&parse_hex(GOLDEN_BLOB_HEADER)));
+    assert_eq!(BlobHeader::decode(&parse_hex(GOLDEN_BLOB_HEADER))?, header);
 
     let vault_id = seq::<16>(0xa0);
     let mut sealed = Vec::new();
@@ -227,7 +253,7 @@ fn blob_golden_vector() -> TestResult {
     assert_eq!(sealed.len(), BLOB_HEADER_LEN + 21);
     assert_eq!(
         hex(&sealed[..BLOB_HEADER_LEN]),
-        hex(&unhex(GOLDEN_BLOB_HEADER))
+        hex(&parse_hex(GOLDEN_BLOB_HEADER))
     );
     assert_eq!(hex(&sealed[BLOB_HEADER_LEN..]), GOLDEN_HELLO_CHUNK);
 
@@ -302,16 +328,23 @@ fn blob_length_math_and_round_trip() -> TestResult {
     Ok(())
 }
 
-/// H5: the production KDF budget. Also the 128 MiB known answer (F3).
+/// F3: the 128 MiB known answer for the production parameters.
 #[test]
-#[allow(clippy::print_stderr)] // the measured time is part of the task report
-fn standard_kdf_unlock_is_under_three_seconds() -> TestResult {
+fn standard_kdf_known_answer() -> TestResult {
     let kek = kdf::derive_kek(&pw(PASSWORD), &KAT_SALT, KdfParams::STANDARD)?;
     assert_eq!(
         hex(kek.expose_secret()),
         "04bcda12921de9eb356711dc2c45129dc5f56b330f232cbbb683f5dd83a0736c"
     );
+    Ok(())
+}
 
+/// H5: the production KDF budget, measured on the machine it runs on. A wall-clock check, so
+/// it is not part of the default run: `cargo test -p genslate-vault -- --ignored --nocapture`.
+#[test]
+#[ignore = "wall-clock timing; run with --ignored to measure the STANDARD unlock"]
+#[allow(clippy::print_stderr)] // the measured time is part of the task report
+fn standard_kdf_unlock_is_under_three_seconds() -> TestResult {
     let fixture = Fixture::new()?;
     let config = VaultConfig {
         kdf: KdfParams::STANDARD,

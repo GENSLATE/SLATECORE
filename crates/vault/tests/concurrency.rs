@@ -1,5 +1,7 @@
 //! Concurrency: lock during reads, parallel unlock (X1, X2, 8.2 contract).
 
+// cspell:ignore gvpart
+
 mod common;
 
 use std::fs;

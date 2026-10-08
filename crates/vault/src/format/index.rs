@@ -12,6 +12,8 @@
 //! Associated data: `"GSV1-INDEX" || vault_id || bytes[0, 20)`. The plaintext is JSON with the
 //! entries sorted by path; names and folders exist nowhere else.
 
+// cspell:ignore gsvindx
+
 use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};

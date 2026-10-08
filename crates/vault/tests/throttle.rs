@@ -157,14 +157,14 @@ fn attempt_is_counted_before_the_kdf_runs() -> TestResult {
     vault.lock(LockPolicy::SyncThenWipe)?;
     let guard_path = fixture.root().join("vault.guard");
     let seen_during_kdf = std::thread::scope(|scope| {
-        let unlocker = scope.spawn(|| vault.unlock(&pw(PASSWORD)));
+        let unlocking = scope.spawn(|| vault.unlock(&pw(PASSWORD)));
         let mut seen = false;
-        while !unlocker.is_finished() {
+        while !unlocking.is_finished() {
             if fs::read_to_string(&guard_path).is_ok_and(|g| g.contains(r#""failures":1"#)) {
                 seen = true;
             }
         }
-        (seen, unlocker.join())
+        (seen, unlocking.join())
     });
     let (seen, joined) = seen_during_kdf;
     joined.map_err(|_| "unlock panicked")??;
@@ -188,10 +188,23 @@ fn missing_or_corrupt_guard_means_zero_failures() -> TestResult {
     drop(vault);
 
     // R8: garbage is treated as zero failures and does not panic.
-    fs::write(fixture.root().join("vault.guard"), b"\x00\xffnot json{{")?;
+    fs::write(fixture.root().join("vault.guard"), b"\x00\xff not json{{")?;
     let vault = fixture.open()?;
     assert_eq!(vault.status().failed_attempts, 0);
     assert_eq!(vault.status().retry_after, None);
+    drop(vault);
+
+    // An oversized guard file is not read past its cap: treated as corrupt, zero failures.
+    let padding = " ".repeat(64 * 1024);
+    fs::write(
+        fixture.root().join("vault.guard"),
+        format!(
+            r#"{padding}{{"v":1,"failures":9,"last_attempt_ms":0,"locked_until_ms":{}}}"#,
+            now_ms()? + 160_000
+        ),
+    )?;
+    let vault = fixture.open()?;
+    assert_eq!(vault.status().failed_attempts, 0);
     drop(vault);
 
     // R6 (documented limit): deleting the file resets the persisted state.

@@ -14,7 +14,7 @@ mod transfer;
 
 use std::fmt;
 use std::fs::{self, File};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -32,12 +32,16 @@ use crate::store::{self, Layout};
 use crate::throttle::Throttle;
 use crate::{LockPolicy, LockReport, StartupReport, VaultConfig, VaultState, VaultStatus};
 
+/// `kdf_limit` value meaning "the launcher set none" (the default cap applies).
 const NO_LIMIT: u64 = u64::MAX;
 
 /// Thread-safe; share as `Arc<Vault>`.
 pub struct Vault {
     config: VaultConfig,
     layout: Layout,
+    /// `config.root` and `config.session_root` with links resolved, for containment checks.
+    resolved_root: PathBuf,
+    resolved_session_root: PathBuf,
     /// Holds the OS lock on `vault.lock` for the life of the handle.
     _instance_lock: File,
     epoch: AtomicU64,
@@ -65,6 +69,8 @@ struct Unlocked {
     vault_id: [u8; 16],
     header: HeaderSlot,
     generation: u64,
+    /// The index slot holding `generation`; commits go to the other one.
+    index_slot: usize,
     index: Index,
     session: Session,
 }
@@ -95,17 +101,44 @@ pub(crate) fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// Fails unless `session_root` and `root` are disjoint (both wiping and the vault depend on it).
-fn check_disjoint(root: &Path, session_root: &Path) -> Result<(), VaultError> {
-    let root = fs::canonicalize(root).map_err(VaultError::io("resolving the vault folder"))?;
-    let session =
-        fs::canonicalize(session_root).map_err(VaultError::io("resolving the session folder"))?;
-    if root.starts_with(&session) || session.starts_with(&root) {
-        return Err(VaultError::Internal(
-            "the session folder overlaps the vault folder",
-        ));
+/// `path` made absolute with links resolved as far as it exists; the components that do not
+/// exist yet are appended as written.
+fn resolve(path: &Path) -> Result<PathBuf, VaultError> {
+    let absolute = std::path::absolute(path).map_err(VaultError::io("resolving a vault folder"))?;
+    let mut existing = absolute.as_path();
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(mut resolved) = fs::canonicalize(existing) {
+            resolved.extend(missing.iter().rev());
+            return Ok(resolved);
+        }
+        let (Some(parent), Some(name)) = (existing.parent(), existing.file_name()) else {
+            return Err(VaultError::InvalidConfig(
+                "a vault folder path cannot be resolved",
+            ));
+        };
+        missing.push(name.to_owned());
+        existing = parent;
     }
-    Ok(())
+}
+
+/// `true` when the resolved `path` is `root` or lies inside it. Names compare case-insensitively
+/// on Windows, as its file systems do.
+pub(crate) fn is_within(path: &Path, root: &Path) -> bool {
+    let key = |p: &Path| -> Vec<String> {
+        p.components()
+            .map(|c| {
+                let name = c.as_os_str().to_string_lossy();
+                if cfg!(windows) {
+                    name.to_lowercase()
+                } else {
+                    name.into_owned()
+                }
+            })
+            .collect()
+    };
+    let (path, root) = (key(path), key(root));
+    path.len() >= root.len() && path[..root.len()] == root[..]
 }
 
 /// Wraps `key` under a new KEK into a header slot.
@@ -132,16 +165,28 @@ fn seal_header(
 impl Vault {
     /// Takes `vault.lock` (`Busy` if another instance holds it), wipes stale session folders,
     /// scans for foreign items. Never runs the KDF.
+    ///
+    /// The two folders must not overlap ([`VaultError::InvalidConfig`]); this is checked before
+    /// either is created.
     pub fn open(config: VaultConfig) -> Result<(Vault, StartupReport), VaultError> {
+        let (root, session_root) = (resolve(&config.root)?, resolve(&config.session_root)?);
+        if is_within(&root, &session_root) || is_within(&session_root, &root) {
+            return Err(VaultError::InvalidConfig(
+                "the session folder overlaps the vault folder",
+            ));
+        }
         fs::create_dir_all(&config.root).map_err(VaultError::io("creating the vault folder"))?;
         fs::create_dir_all(&config.session_root)
             .map_err(VaultError::io("creating the session folder"))?;
-        check_disjoint(&config.root, &config.session_root)?;
+        let resolved_root =
+            fs::canonicalize(&config.root).map_err(VaultError::io("resolving the vault folder"))?;
+        let resolved_session_root = fs::canonicalize(&config.session_root)
+            .map_err(VaultError::io("resolving the session folder"))?;
         let layout = Layout::new(&config.root);
         let instance_lock = store::take_instance_lock(&layout)?;
-        // We own the lock, so no other process owns the session folder: wipe all of it.
-        let wipe = session::wipe_contents(&config.session_root);
-        let headers = store::read_headers(&layout)?;
+        // We own the lock, so no other process owns the session folders: wipe them all.
+        let wipe = session::wipe_sessions(&config.session_root);
+        let headers = store::read_headers(&layout);
         let throttle = Throttle::load(layout.guard.clone(), Instant::now(), SystemTime::now());
         let foreign = store::foreign_items(&layout).len();
         let inner = Inner {
@@ -156,6 +201,8 @@ impl Vault {
         let vault = Vault {
             config,
             layout,
+            resolved_root,
+            resolved_session_root,
             _instance_lock: instance_lock,
             epoch: AtomicU64::new(0),
             kdf_limit: AtomicU64::new(NO_LIMIT),
@@ -163,11 +210,7 @@ impl Vault {
             sync_gate: Mutex::new(()),
             inner: Mutex::new(inner),
         };
-        let report = StartupReport {
-            stale_files_wiped: wipe.wiped,
-            stale_files_left: wipe.left,
-        };
-        Ok((vault, report))
+        Ok((vault, startup_report(wipe)))
     }
 
     /// The state lock; fails closed after a panic poisoned it.
@@ -180,7 +223,7 @@ impl Vault {
                 guard.unlocked = None;
                 guard.poisoned = true;
                 self.epoch.fetch_add(1, Ordering::SeqCst);
-                let _ = session::wipe_contents(&self.config.session_root);
+                let _ = session::wipe_sessions(&self.config.session_root);
                 guard
             }
         };
@@ -220,29 +263,35 @@ impl Vault {
         inner.unlocked.as_mut().ok_or(VaultError::Cancelled)
     }
 
-    /// Writes `index` as the next generation; the in-memory index changes only on success.
+    /// Writes `index` as the next generation into the slot not holding the current one; the
+    /// in-memory index changes only on success. On failure the write may or may not have reached
+    /// the disk, so callers keep any new blobs it references (the next unlock collects them).
     fn commit(&self, unlocked: &mut Unlocked, index: Index) -> Result<(), VaultError> {
         let generation = unlocked.generation + 1;
+        let slot = 1 - unlocked.index_slot;
         store::commit_index(
             &self.layout,
             &unlocked.key,
             &unlocked.vault_id,
             generation,
             &index,
+            slot,
         )?;
         unlocked.generation = generation;
+        unlocked.index_slot = slot;
         unlocked.index = index;
         Ok(())
     }
 
-    fn kdf_limit(&self) -> Option<u64> {
+    fn kdf_limit(&self) -> u64 {
         let limit = self.kdf_limit.load(Ordering::SeqCst);
-        (limit != NO_LIMIT).then_some(limit)
+        kdf::memory_limit((limit != NO_LIMIT).then_some(limit))
     }
 
-    /// Caps the memory the KDF may allocate (`None`: no cap beyond what the allocator grants).
-    /// The launcher can set it from the PC's available memory so an oversized or hostile header
-    /// fails with `OutOfMemory` instead of pushing the PC into swap.
+    /// Caps the memory the KDF may allocate. `None` restores the default cap, 1 GiB (the
+    /// largest header the format accepts); larger values are clamped to it. The launcher can
+    /// lower it from the PC's available memory so an oversized or hostile header fails with
+    /// `OutOfMemory` instead of pushing the PC into swap.
     pub fn set_kdf_memory_limit(&self, max_bytes: Option<u64>) {
         let value = max_bytes.map_or(NO_LIMIT, |bytes| bytes.min(NO_LIMIT - 1));
         self.kdf_limit.store(value, Ordering::SeqCst);
@@ -290,7 +339,7 @@ impl Vault {
         let unlock_gate = gate(&self.unlock_gate);
         {
             let mut inner = self.inner()?;
-            let headers = store::read_headers(&self.layout)?;
+            let headers = store::read_headers(&self.layout);
             if inner.unlocked.is_some() || headers.exists {
                 inner.exists = true;
                 inner.header = headers.winner.ok();
@@ -307,22 +356,15 @@ impl Vault {
         let header = seal_header(&kek, &key, 1, vault_id, params, salt)?;
         drop(kek);
 
-        // Index first, header last: a crash in between leaves no header, so no vault.
+        // Index first, header last, slot A renamed into place: a crash at any point leaves
+        // either no header (create works again) or a complete one.
         fs::create_dir_all(&self.layout.files).map_err(VaultError::io("creating the vault"))?;
-        for slot in &self.layout.indexes {
-            match fs::remove_file(slot) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(VaultError::Io {
-                        context: "creating the vault",
-                        source: e,
-                    });
-                }
-                _ => {}
-            }
-        }
+        store::remove_create_leftovers(&self.layout)?;
         let index = Index::default();
-        store::commit_index(&self.layout, &key, &vault_id, 1, &index)?;
-        store::write_headers(&self.layout, &header)?;
+        // Generation 1 goes to slot B so that, normally, generation g sits in slot g % 2.
+        let index_slot = 1;
+        store::commit_index(&self.layout, &key, &vault_id, 1, &index, index_slot)?;
+        store::write_first_headers(&self.layout, &header)?;
         let session = Session::new()?;
         {
             let mut inner = self.inner()?;
@@ -333,6 +375,7 @@ impl Vault {
                 vault_id,
                 header,
                 generation: 1,
+                index_slot,
                 index,
                 session,
             });
@@ -412,7 +455,7 @@ impl Vault {
             if inner.unlocked.is_some() {
                 return Err(VaultError::AlreadyUnlocked);
             }
-            let read = store::read_headers(&self.layout)?;
+            let read = store::read_headers(&self.layout);
             inner.exists = read.exists;
             inner.header = read.winner.as_ref().ok().cloned();
             read
@@ -436,6 +479,7 @@ impl Vault {
                 vault_id: header.vault_id,
                 header,
                 generation: loaded.generation,
+                index_slot: loaded.slot,
                 index: loaded.index,
                 session,
             });
@@ -473,8 +517,8 @@ impl Vault {
             Ok(next) => next,
             // A half-written pair may already hold the new slot; report what is on disk.
             Err(_) => store::read_headers(&self.layout)
+                .winner
                 .ok()
-                .and_then(|read| read.winner.ok())
                 .filter(|slot| slot.vault_id == header.vault_id)
                 .unwrap_or(header),
         }
@@ -516,7 +560,14 @@ impl Vault {
             salt,
         )?;
         drop(kek);
-        store::write_headers(&self.layout, &next)?;
+        if let Err(e) = store::write_headers(&self.layout, &next) {
+            // Slot A may hold the new wrap while slot B failed: then the new password is
+            // the one that unlocks, so report what the disk says, not the error.
+            let on_disk = store::read_headers(&self.layout).winner;
+            if !on_disk.is_ok_and(|winner| winner == next) {
+                return Err(e);
+            }
+        }
         let mut inner = self.inner()?;
         inner.header = Some(next.clone());
         if let Some(unlocked) = inner.unlocked.as_mut() {
@@ -567,7 +618,7 @@ impl Vault {
         };
         drop(unlocked); // the key and the index names are wiped here
         drop(sync_gate);
-        let wipe = session::wipe_contents(&self.config.session_root);
+        let wipe = session::wipe_sessions(&self.config.session_root);
         let mut inner = self.inner()?;
         inner.leftovers = wipe.left.len();
         inner.foreign = store::foreign_items(&self.layout).len();
@@ -602,12 +653,20 @@ impl Vault {
         if inner.unlocked.is_some() {
             return Err(VaultError::AlreadyUnlocked);
         }
-        let wipe = session::wipe_contents(&self.config.session_root);
+        let wipe = session::wipe_sessions(&self.config.session_root);
         inner.leftovers = wipe.left.len();
-        Ok(StartupReport {
-            stale_files_wiped: wipe.wiped,
-            stale_files_left: wipe.left,
-        })
+        Ok(startup_report(wipe))
+    }
+}
+
+/// Session files that could not be removed, then entries of the session root that are not
+/// session folders (left untouched).
+fn startup_report(wipe: session::WipeReport) -> StartupReport {
+    let mut left = wipe.left;
+    left.extend(wipe.foreign);
+    StartupReport {
+        stale_files_wiped: wipe.wiped,
+        stale_files_left: left,
     }
 }
 
