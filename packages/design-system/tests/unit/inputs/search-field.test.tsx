@@ -54,4 +54,38 @@ describe('SearchField', () => {
     render(<SearchField shortcut="mod+f" platform="windows" />);
     expect(screen.getByText('Ctrl+F')).toBeInTheDocument();
   });
+
+  describe('hint layout', () => {
+    // happy-dom has no layout engine, so these pin the structure that keeps a narrow field legible:
+    // the input and the hint share one flex row, the hint never shrinks, the input does.
+    test('the hint sits after the input in its own non-shrinking slot, never layered over it', () => {
+      render(<SearchField shortcut="mod+f" platform="windows" />);
+      const input = screen.getByRole('searchbox');
+      const hint = screen.getByText('Ctrl+F');
+      const slot = hint.closest('[data-slot="text-field-trailing"]');
+      expect(slot).not.toBeNull();
+      expect(slot?.parentElement).toBe(input.parentElement);
+      expect(input.compareDocumentPosition(slot as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(slot).toHaveClass('shrink-0');
+      expect(hint).toHaveClass('pointer-events-none', 'whitespace-nowrap');
+      expect(hint).not.toHaveClass('absolute');
+    });
+
+    test('a placeholder that does not fit ends in an ellipsis instead of being clipped mid-glyph', () => {
+      render(<SearchField shortcut="mod+f" platform="windows" />);
+      const input = screen.getByRole('searchbox');
+      expect(input).toHaveClass('min-w-0', 'flex-1', 'text-ellipsis');
+    });
+
+    test('the hint tucks into the control padding, aligned with the clear button', () => {
+      render(<SearchField shortcut="mod+f" platform="windows" />);
+      const hint = screen.getByText('Ctrl+F');
+      expect(hint).toHaveClass('-mr-1');
+    });
+
+    test('keeps the ellipsis when the caller passes its own input class', () => {
+      render(<SearchField shortcut="mod+f" platform="windows" inputClassName="font-mono" />);
+      expect(screen.getByRole('searchbox')).toHaveClass('text-ellipsis', 'font-mono');
+    });
+  });
 });

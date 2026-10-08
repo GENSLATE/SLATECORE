@@ -5,7 +5,7 @@ import { Icon } from '../../display/icon';
 import { TextField } from '../text-field/text-field.component';
 import { useControllableState } from '../text-field/use-controllable-state';
 import type { SearchFieldProps } from './search-field.types';
-import { searchFieldHintVariants } from './search-field.variants';
+import { searchFieldHintVariants, searchFieldInputVariants } from './search-field.variants';
 
 /**
  * A search input: magnifier glyph, clear button, Escape clears, and an optional `⌘F` hint
@@ -60,10 +60,7 @@ export function SearchField({
       trailing={hint}
       clearable
       labels={labels}
-      inputClassName={cn(
-        '[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none',
-        inputClassName,
-      )}
+      inputClassName={cn(searchFieldInputVariants(), inputClassName)}
       {...props}
     />
   );

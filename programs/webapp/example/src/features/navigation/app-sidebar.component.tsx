@@ -10,7 +10,8 @@ interface AppSidebarProps {
 export function AppSidebar({ selectedId, onSelect }: AppSidebarProps) {
   return (
     <Sidebar aria-label="Showcase pages">
-      <SidebarContent aria-label="Pages" className="pt-1.5">
+      {/* pb-3: the last page keeps a clear inset above the status bar when scrolled to the end. */}
+      <SidebarContent aria-label="Pages" className="pt-1.5" viewportClassName="pb-3">
         {SHOWCASE_GROUPS.filter((group) => group.sections.length > 0).map((group) => (
           <SidebarSection key={group.id} title={group.title}>
             {group.sections.map((section) => (

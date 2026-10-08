@@ -32,7 +32,7 @@ export function WindowContextMenuSection() {
     <Specimen
       title="Window context menu"
       description="Right-click the titlebar, the text, the field, the link or a status item: the menu follows what is under the pointer. Shift+F10 opens it from the keyboard."
-      aside={<span className="text-fg-muted text-sm">Last command: {last}</span>}
+      aside={<span className="pl-6 text-fg-muted text-sm">Last command: {last}</span>}
       stageClassName="flex-col items-stretch bg-surface-sunken p-8"
       code={CODE}
     >
