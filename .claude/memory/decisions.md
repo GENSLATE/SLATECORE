@@ -22,3 +22,11 @@
 - **Ignore files.** `.cursorignore` hides only bulk, generated and private files. Screenshots sit in `.cursorindexingignore`, so they stay out of the index but agents can still attach them.
 - **Deferred (P2):** `statusline`, `launch.json` and `tasks.json` (the empty ones were deleted), `/audit`, the `portability-test` and `launcher-command` skills, `.worktreeinclude`.
 - **Unverified, check on first run:** Antigravity rule frontmatter keys and whether it reads `AGENTS.md`; whether Cursor reads `.md` rules and resolves `@file` from the project root; the Context7 header name. Run `/context` in Claude, Settings > Rules in Cursor and the Customizations panel in Antigravity once.
+
+## 2026-10-08 Task 4 (vault)
+
+- **Unlock cost.** STANDARD Argon2id (m=128 MiB, t=3, p=1) unlocks in about 340 to 430 ms in the Linux cloud sandbox (4 vCPU Xeon 2.1 GHz, debug test build with argon2 optimised). Re-measure on the owner's PC; the timing test is `#[ignore]`.
+- **Unreadable slot means no unlock.** If a header or index slot exists but cannot be read (sharing violation, folder in its place), unlock fails with a retryable I/O error before any heal, garbage collection, KDF upgrade or ingest, so nothing is deleted or overwritten. Only missing or damaged slots are healed.
+- **Dropped-in originals are wiped through one exclusive handle** (Windows `share_mode(0)` plus the reparse-point flag) and only after the vault commit; a replaced, grown or linked file is never unlinked, it stays foreign. Residual: Windows has no stable hard-link count in std, so a hard-linked original also zeroes the content seen through its other name (the content is safe in the vault). Documented, accepted for v1.
+- **Windows-only paths are lint-checked, not executed, in the cloud.** The Windows branches of the foreign-ingest tests must be run on the Windows machine before Task 4 is closed.
+- **Deferred:** a dropped-in folder whose files cannot be wiped is imported again as `Name (N)` at each unlock; `upgraded_to` can exceed the work cap; Unix FIFO and mode-000 edge cases.
