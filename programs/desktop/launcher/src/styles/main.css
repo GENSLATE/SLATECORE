@@ -1,0 +1,108 @@
+/* Tailwind v4 + SLATECORE tokens and components (design-system.css imports tailwindcss). */
+@import '@genslate/design-system/design-system.css';
+
+/* This app's own sources. */
+@source '../';
+
+/*
+ * Launcher geometry. The OS window is transparent, fixed in size (as wide as the expanded
+ * layout, as tall as the size preset) and pinned to the bottom-right of the work area. Inside
+ * it the frame is drawn at the bottom-right edge, `--launcher-inset` in from the window edges.
+ * Opening a tool widens the frame from NORMAL to EXPANDED (a CSS width transition to the left);
+ * closing it shrinks back. `src-tauri` hit-tests the same numbers (get_context → layout, set on
+ * :root at boot), and the size heights match `genslate-launcher-core` geometry.
+ */
+@theme {
+  --spacing-launcher-rail: 9.5rem; /* 152px documents rail */
+  --spacing-launcher-titlebar: 2.5rem; /* 40px */
+  --spacing-launcher-band: 3rem; /* 48px search / tools row */
+  --spacing-launcher-status: 1.75rem; /* 28px */
+  --spacing-launcher-row: 2.75rem; /* 44px two-line app row */
+  --spacing-launcher-tile: 1.75rem; /* 28px icon tile */
+}
+
+:root {
+  /* Frame width tokens: NORMAL with the app list, EXPANDED with a tool open. */
+  --launcher-inset: 16px;
+  --launcher-normal: 460px;
+  --launcher-expanded: 920px;
+  /* Frame height per size preset (S 560 · M 640 · L 740). */
+  --launcher-height: 640px;
+  --launcher-radius: var(--gs-radius-window);
+}
+
+[data-size='s'] {
+  --launcher-height: 560px;
+}
+
+[data-size='l'] {
+  --launcher-height: 740px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+  /* The OS window is transparent: only the frame paints. */
+  background: transparent;
+}
+
+/* The browser preview has no desktop behind the window: a quiet backdrop stands in for it. */
+html[data-launcher-mode='web'] {
+  background: var(--gs-color-surface-sunken);
+}
+
+/* ── Stage: show / hide ─────────────────────────────────────────────────── */
+.launcher-stage {
+  transform-origin: 100% 100%;
+  transition:
+    opacity var(--gs-duration-base) var(--gs-ease-standard),
+    transform var(--gs-duration-slow) var(--gs-ease-emphasized);
+}
+
+.launcher-stage[data-state='closed'] {
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+  transition-duration: var(--gs-duration-fast);
+}
+
+/* ── Frame: widen / shrink ──────────────────────────────────────────────── */
+.launcher-frame {
+  width: var(--launcher-normal);
+  height: min(var(--launcher-height), 100%);
+  transition:
+    width var(--gs-duration-slow) var(--gs-ease-emphasized),
+    height var(--gs-duration-slow) var(--gs-ease-emphasized);
+}
+
+[data-expanded] .launcher-frame {
+  width: var(--launcher-expanded);
+}
+
+/*
+ * Cross-fade between the app list and a tool. Each layer keeps its final width and is anchored
+ * to the right edge, so nothing reflows while the frame widens: the tool is revealed from the
+ * right as the frame grows, while the list fades away.
+ */
+.launcher-layer {
+  transition: opacity var(--gs-duration-base) var(--gs-ease-standard);
+}
+
+.launcher-layer[data-state='hidden'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.launcher-layer[data-state='shown'][data-layer='tool'] {
+  transition-delay: var(--gs-duration-fast);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher-stage,
+  .launcher-frame,
+  .launcher-layer {
+    transition-duration: 0ms;
+    transition-delay: 0ms;
+  }
+}

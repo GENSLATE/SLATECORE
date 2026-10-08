@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>SLATECORE Explorer</title>
+  <!-- SLATECORE app icon by GENSLATE: flat Polar Night plate (nord1, nord2 rim), Snow Storm line work, one Frost or Aurora accent. No gradients or shadows. Glyph: a folder — Snow Storm back, nord7 front. The launcher crops the viewBox to the plate (100 100 824 824). -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#3b4252"/>
+  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#434c5e" stroke-width="4"/>
+  <g opacity="0.4">
+    <path d="M292 352Q292 312 332 312H446Q466 312 480 326L514 360H692Q732 360 732 400V680Q732 720 692 720H332Q292 720 292 680Z" fill="#eceff4"/>
+  </g>
+  <path d="M292 468Q292 428 332 428H692Q732 428 732 468V680Q732 720 692 720H332Q292 720 292 680Z" fill="#8fbcbb"/>
+</svg>

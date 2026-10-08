@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>SLATECORE Jukebox</title>
+  <!-- SLATECORE app icon by GENSLATE: flat Polar Night plate (nord1, nord2 rim), Snow Storm line work, one Frost or Aurora accent. No gradients or shadows. Glyph: a vinyl record with a nord11 label. The launcher crops the viewBox to the plate (100 100 824 824). -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#3b4252"/>
+  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#434c5e" stroke-width="4"/>
+  <path d="M292 512a220 220 0 1 0 440 0a220 220 0 1 0 -440 0Z" fill="none" stroke="#eceff4" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <g opacity="0.4">
+    <path d="M340 512a172 172 0 1 0 344 0a172 172 0 1 0 -344 0Z" fill="none" stroke="#eceff4" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M380 512a132 132 0 1 0 264 0a132 132 0 1 0 -264 0Z" fill="none" stroke="#eceff4" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <path d="M424 512a88 88 0 1 0 176 0a88 88 0 1 0 -176 0Z" fill="#bf616a"/>
+  <path d="M494 512a18 18 0 1 0 36 0a18 18 0 1 0 -36 0Z" fill="#3b4252"/>
+</svg>

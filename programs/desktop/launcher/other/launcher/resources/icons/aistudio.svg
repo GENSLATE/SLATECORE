@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>SLATECORE AI Studio</title>
+  <!-- SLATECORE app icon by GENSLATE: flat Polar Night plate (nord1, nord2 rim), Snow Storm line work, one Frost or Aurora accent. No gradients or shadows. Glyph: two sparkles — a large one in nord15, a small one in nord8. The launcher crops the viewBox to the plate (100 100 824 824). -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#3b4252"/>
+  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#434c5e" stroke-width="4"/>
+  <path d="M468 344Q498 526 680 556Q498 586 468 768Q438 586 256 556Q438 526 468 344Z" fill="#b48ead"/>
+  <path d="M676 252Q689 331 768 344Q689 357 676 436Q663 357 584 344Q663 331 676 252Z" fill="#88c0d0"/>
+</svg>
