@@ -133,6 +133,17 @@ describe('PasswordField, uncontrolled', () => {
     expect(reactStateContains(view.container, SECRET)).toBe(false);
   });
 
+  test('typing while an error shows keeps the secret out of React state too', async () => {
+    // An invalid field revalidates on every change; Base UI would store the value for that.
+    const user = userEvent.setup();
+    const view = render(<Form onSubmit={() => {}} error="Wrong password." />);
+    const input = screen.getByLabelText('Vault password');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    await user.type(input, SECRET);
+    expect(input).toHaveValue(SECRET);
+    expect(reactStateContains(view.container, SECRET)).toBe(false);
+  });
+
   test('a controlled field does hold the value in React state (the contrast)', async () => {
     const user = userEvent.setup();
     function Held() {
