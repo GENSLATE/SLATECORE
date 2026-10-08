@@ -32,11 +32,11 @@ jobs:
       - uses: ./.github/actions/setup-env
         with:
           cache-scope: security
-          tools: cargo-deny
+          tools: cargo-deny@0.20.2
 
       # Policy: .config/cargo/deny.toml (advisories, licences, bans, sources).
       - name: cargo-deny
         run: bun run rust:deny
 
-      - name: npm advisories
+      - name: JavaScript advisories
         run: bun audit --audit-level=high

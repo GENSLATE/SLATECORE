@@ -10,7 +10,7 @@ inputs:
     description: Install the Rust toolchain and the cargo cache. Use "false" for jobs that never run cargo.
     default: "true"
   tools:
-    description: Space separated cargo tools to install with taiki-e/install-action, for example cargo-machete.
+    description: Space separated cargo tools for taiki-e/install-action, each pinned as name@x.y.z (cargo-machete@0.9.2).
     default: ""
   cache-scope:
     description: Keeps one job's turbo cache apart from the others (turbo-<os>-<scope>-<sha>).

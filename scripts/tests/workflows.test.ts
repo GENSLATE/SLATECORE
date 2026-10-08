@@ -75,6 +75,10 @@ const WORKFLOWS = filesBelow(WORKFLOW_DIR).filter((path) => path.endsWith('.yml'
 const ACTIONS = filesBelow('.github/actions').filter((path) => path.endsWith('/action.yml'));
 const YAML_FILES = [...WORKFLOWS, ...ACTIONS];
 
+/** `if:` of every turbo cache save: main only, and still saves when an earlier step failed. */
+const IS_MAIN = "github.ref == 'refs/heads/main'";
+const MAIN_ONLY_SAVE = `${IS_MAIN} && !cancelled()`;
+
 const stripComment = (line: string): string => line.replace(/(^|\s)#.*$/, '');
 
 /** A line's `uses:` value and its trailing comment, when the line is a `uses:` entry. */
@@ -266,6 +270,30 @@ describe('scripts', () => {
     expect(interpolated).toEqual([]);
   });
 
+  test('every_cargo_tool_is_pinned_to_an_exact_version', () => {
+    const entries = YAML_FILES.flatMap((path) => {
+      const doc = parseYaml<Workflow & Action>(path);
+      const steps = [
+        ...(doc.runs?.steps ?? []),
+        ...Object.values(doc.jobs ?? {}).flatMap((job) => job.steps ?? []),
+      ];
+      return steps.flatMap((step) =>
+        ['tool', 'tools'].flatMap((key) => {
+          const value = step.with?.[key];
+          // `${{ inputs.tools }}` in the composite action forwards what the workflows pass.
+          return typeof value === 'string' && !value.includes('${{') ? value.split(/[\s,]+/) : [];
+        }),
+      );
+    });
+    expect(entries.filter((entry) => entry !== '')).toEqual(
+      expect.arrayContaining(
+        ['cargo-machete', 'cargo-deny'].map((name) => expect.stringContaining(name)),
+      ),
+    );
+    const unpinned = entries.filter((entry) => !/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/.test(entry));
+    expect(unpinned).toEqual([]);
+  });
+
   test('pull_request_target_is_never_used', () => {
     for (const path of WORKFLOWS) expect(triggersOf(path)).not.toContain('pull_request_target');
   });
@@ -342,6 +370,13 @@ describe('ci workflow', () => {
     expect([...turbo.matchAll(/\/\/#[\w:-]+/g)].map((match) => match[0]).sort()).toEqual(expected);
   });
 
+  test('the_rust_gates_run_even_when_the_typescript_gates_failed', () => {
+    // Without it a failed `bun run check --ts` hides the Rust failures until the next push.
+    const steps = ci.jobs?.['check']?.steps ?? [];
+    const rust = steps.find((step) => step.run?.includes('turbo run') === true);
+    expect(rust?.if?.replace(/^\$\{\{\s*|\s*\}\}$/g, '')).toBe('!cancelled()');
+  });
+
   test('turbo_cache_is_saved_from_main_only_and_per_job', () => {
     const saves = Object.entries(ci.jobs ?? {}).flatMap(([id, job]) =>
       (job.steps ?? [])
@@ -351,7 +386,7 @@ describe('ci workflow', () => {
     expect(saves.map(({ id }) => id)).toEqual(['check', 'test', 'package']);
     for (const { step } of saves) {
       expect(step.with?.['path']).toBe('.turbo/cache');
-      expect(step.if).toContain("github.ref == 'refs/heads/main'");
+      expect(step.if).toBe(MAIN_ONLY_SAVE);
     }
   });
 
@@ -368,6 +403,25 @@ describe('ci workflow', () => {
     );
     expect(upload?.with?.['path']).toBe('release/*.zip');
     expect(upload?.with?.['if-no-files-found']).toBe('error');
+  });
+
+  test('the_uploaded_artifact_is_what_release_downloads_and_publishes', () => {
+    const upload = (ci.jobs?.['package']?.steps ?? []).find((step) =>
+      step.uses?.startsWith('actions/upload-artifact@'),
+    );
+    const publishSteps = parseYaml<Workflow>(RELEASE).jobs?.['publish']?.steps ?? [];
+    const download = publishSteps.find((step) =>
+      step.uses?.startsWith('actions/download-artifact@'),
+    );
+    const uploadName = String(upload?.with?.['name']);
+    const uploadPath = String(upload?.with?.['path']);
+    const downloadPath = String(download?.with?.['path']);
+    expect(uploadName).not.toBe('undefined');
+    expect(download?.with?.['name']).toBe(uploadName);
+    // upload-artifact stores the zips without their folder; download puts them back in `path`.
+    expect(uploadPath).toBe(`${downloadPath}/*.zip`);
+    const publish = runsOf(publishSteps).find((script) => script.includes('gh release create'));
+    expect(publish).toContain(` ${uploadPath} `);
   });
 });
 
@@ -393,7 +447,7 @@ describe('setup-env action', () => {
 
   test('saves_the_cargo_cache_from_main_only', () => {
     const rust = steps.find((step) => step.uses?.startsWith('Swatinem/rust-cache@'));
-    expect(String(rust?.with?.['save-if'])).toContain("github.ref == 'refs/heads/main'");
+    expect(rust?.with?.['save-if']).toBe(`\${{ ${IS_MAIN} }}`);
   });
 
   test('runs_bun_install_with_the_frozen_lockfile', () => {
@@ -530,10 +584,10 @@ describe('repository files', () => {
     expect(readText('.github/SECURITY.md')).toContain('security/advisories/new');
   });
 
-  test('no_personal_identifiers_in_github_files', () => {
-    const hits = filesBelow('.github')
-      .filter((path) => /angeletti/i.test(readText(path)))
-      .map((path) => path);
+  test('no_email_addresses_in_github_files', () => {
+    // Not `tool@0.9.2` or `action@<sha>`: an address needs letters in its last label.
+    const email = /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b/;
+    const hits = filesBelow('.github').filter((path) => email.test(readText(path)));
     expect(hits).toEqual([]);
   });
 
