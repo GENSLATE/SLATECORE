@@ -6,7 +6,7 @@ import { TabsVariantContext } from './tabs-context';
 
 /**
  * Tabs with two looks: `underline` (VS Code panel tabs, sliding accent bar) and `pill`
- * (macOS segmented control). Arrow keys move focus; Enter/Space activate (APG manual activation).
+ * (rounded pills on a sunken track, with a sliding indicator). Arrow keys move focus; Enter/Space activate (APG manual activation).
  */
 export function Tabs({ variant = 'underline', className, ...props }: TabsProps) {
   return (

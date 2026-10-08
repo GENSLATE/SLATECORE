@@ -12,8 +12,6 @@ export interface PopoverPopupProps extends Omit<BasePopover.Popup.Props, 'classN
   sideOffset?: number | undefined;
   /** Draw a small arrow pointing at the trigger. */
   arrow?: boolean | undefined;
-  /** Translucent macOS material. */
-  glass?: boolean | undefined;
   className?: string | undefined;
 }
 

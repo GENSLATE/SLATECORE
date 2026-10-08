@@ -22,14 +22,6 @@ export const popupSurface = tv({
       popover: 'rounded-popover p-3',
       dialog: 'rounded-dialog',
     },
-    /**
-     * Kept for API compatibility with the SlateSuite components. SLATECORE surfaces are always
-     * solid, so it changes nothing.
-     */
-    glass: {
-      true: '',
-      false: '',
-    },
   },
-  defaultVariants: { size: 'menu', glass: false },
+  defaultVariants: { size: 'menu' },
 });

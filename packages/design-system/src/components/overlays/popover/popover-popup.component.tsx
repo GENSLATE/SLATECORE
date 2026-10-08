@@ -6,13 +6,12 @@ import { popoverVariants } from './popover.variants';
 
 const styles = popoverVariants();
 
-/** Portal → Positioner → Popup, with the macOS floating-surface recipe. */
+/** Portal → Positioner → Popup, on the flat floating-surface recipe. */
 export function PopoverPopup({
   side = 'bottom',
   align = 'center',
   sideOffset = 6,
   arrow = false,
-  glass = false,
   className,
   children,
   ...props
@@ -28,7 +27,7 @@ export function PopoverPopup({
       >
         <BasePopover.Popup
           data-slot="popover-popup"
-          className={cn(popupSurface({ size: 'popover', glass }), styles.popup(), className)}
+          className={cn(popupSurface({ size: 'popover' }), styles.popup(), className)}
           {...props}
         >
           {arrow && <BasePopover.Arrow data-slot="popover-arrow" className={styles.arrow()} />}

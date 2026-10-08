@@ -14,8 +14,6 @@ export interface MenuPopupProps extends Omit<BaseMenu.Popup.Props, 'className'> 
   align?: BaseMenu.Positioner.Props['align'] | undefined;
   sideOffset?: number | undefined;
   alignOffset?: number | undefined;
-  /** Translucent macOS material. */
-  glass?: boolean | undefined;
   className?: string | undefined;
 }
 

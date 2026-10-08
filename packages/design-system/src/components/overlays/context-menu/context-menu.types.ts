@@ -7,7 +7,5 @@ export interface ContextMenuTriggerProps extends Omit<BaseContextMenu.Trigger.Pr
 }
 
 export interface ContextMenuPopupProps extends Omit<BaseContextMenu.Popup.Props, 'className'> {
-  /** Translucent macOS material. */
-  glass?: boolean | undefined;
   className?: string | undefined;
 }

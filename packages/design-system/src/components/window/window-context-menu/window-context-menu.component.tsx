@@ -94,7 +94,6 @@ export function WindowContextMenu({
   allowNativeMenu = false,
   onOpenChange,
   platform: platformProp,
-  glass = false,
   labels: labelsProp,
 }: WindowContextMenuProps) {
   const contextPlatform = usePlatform();
@@ -224,7 +223,6 @@ export function WindowContextMenu({
       <ContextMenuPopup
         data-zone={target?.zone}
         data-kind={target?.kind}
-        glass={glass}
         className={cn(styles.popup())}
         finalFocus={() => (target?.kind === 'field' ? target.field : true)}
       >

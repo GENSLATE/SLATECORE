@@ -1,7 +1,7 @@
 import type { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import type { CodiconRef } from '../../display/icon/icon.types';
 
-/** `underline`: VS Code panel/editor tabs with a sliding bar. `pill`: macOS segmented control. */
+/** `underline`: VS Code panel/editor tabs with a sliding bar. `pill`: rounded pills on a sunken track with a sliding indicator. */
 export type TabsVariant = 'underline' | 'pill';
 
 export interface TabsProps extends Omit<BaseTabs.Root.Props, 'className'> {

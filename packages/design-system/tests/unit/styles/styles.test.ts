@@ -157,6 +157,14 @@ describe('flat Nord style rules', () => {
     expect(offenders.map(rel)).toEqual([]);
   });
 
+  test('no_glass_option_in_the_component_api', () => {
+    // Floating surfaces are always solid: no `glass` prop, variant or doc anywhere in the source.
+    const offenders = listFiles(srcRoot).filter(
+      (file) => /\.(ts|tsx)$/.test(file) && /\bglass\b/i.test(readFileSync(file, 'utf8')),
+    );
+    expect(offenders.map(rel)).toEqual([]);
+  });
+
   test('no_raw_hex_or_dark_variant_outside_tokens', () => {
     const offenders: string[] = [];
     for (const file of listFiles(srcRoot)) {

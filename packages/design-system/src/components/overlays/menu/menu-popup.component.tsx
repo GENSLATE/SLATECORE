@@ -7,13 +7,12 @@ import { useIsSubmenu } from './menu-context';
 
 const styles = menuVariants();
 
-/** Portal → Positioner → Popup with the macOS menu surface. Submenus overlap their trigger row. */
+/** Portal → Positioner → Popup on the flat floating-menu surface. Submenus overlap their trigger row. */
 export function MenuPopup({
   side,
   align,
   sideOffset,
   alignOffset,
-  glass = false,
   className,
   ...props
 }: MenuPopupProps) {
@@ -30,7 +29,7 @@ export function MenuPopup({
       >
         <BaseMenu.Popup
           data-slot="menu-popup"
-          className={cn(popupSurface({ size: 'menu', glass }), styles.popup(), className)}
+          className={cn(popupSurface({ size: 'menu' }), styles.popup(), className)}
           {...props}
         />
       </BaseMenu.Positioner>

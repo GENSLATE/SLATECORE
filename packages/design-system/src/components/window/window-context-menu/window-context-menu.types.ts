@@ -129,7 +129,5 @@ export interface WindowContextMenuProps {
   onOpenChange?: ((open: boolean) => void) | undefined;
   /** Platform used for labels and shortcut hints. Defaults to the `PlatformProvider`. */
   platform?: Platform | undefined;
-  /** Translucent macOS material. */
-  glass?: boolean | undefined;
   labels?: WindowContextMenuLabels | undefined;
 }
