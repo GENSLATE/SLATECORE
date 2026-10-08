@@ -28,32 +28,85 @@
 /*
  * Bordered controls whose focus lives on (or inside) them — text fields, select triggers. The
  * 1px border turns Frost and a 1px outline sits flush against it: one crisp 2px Frost edge.
+ * Only the control itself or its text input counts: buttons inside the field (a reveal toggle)
+ * draw their own ring, so focus never shows two rings at once.
  */
 @utility focus-ring-within {
   outline: 1px solid transparent;
   outline-offset: 0;
 
-  &:is(:focus-visible, :has(:focus-visible)) {
+  &:is(:focus-visible, :has(:is(input, textarea):focus-visible)) {
     border-color: var(--gs-color-focus);
     outline-color: var(--gs-color-focus);
   }
 }
 
-/* Hairlines: 1px border-subtle separators on one edge (the box keeps its outer size). */
+/*
+ * Hairlines: a 1px separator on one edge, drawn by an absolutely positioned ::after so it never
+ * takes layout space. Fixed-height bars (titlebar, status bar, tab strips, toolbars) keep their
+ * exact token height and centre their children on whole pixels. The host becomes the containing
+ * block (position: relative), so do not combine with absolute/fixed/sticky positioning.
+ * Colour: border-subtle, or any colour token with `hairline-color-<token>`.
+ */
 @utility hairline-t {
-  border-top: 1px solid var(--gs-color-border-subtle);
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    width: auto;
+    height: 1px;
+    background-color: var(--gs-hairline-color, var(--gs-color-border-subtle));
+    pointer-events: none;
+  }
 }
 
 @utility hairline-b {
-  border-bottom: 1px solid var(--gs-color-border-subtle);
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: auto 0 0;
+    width: auto;
+    height: 1px;
+    background-color: var(--gs-hairline-color, var(--gs-color-border-subtle));
+    pointer-events: none;
+  }
 }
 
 @utility hairline-l {
-  border-left: 1px solid var(--gs-color-border-subtle);
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 1px;
+    height: auto;
+    background-color: var(--gs-hairline-color, var(--gs-color-border-subtle));
+    pointer-events: none;
+  }
 }
 
 @utility hairline-r {
-  border-right: 1px solid var(--gs-color-border-subtle);
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 1px;
+    height: auto;
+    background-color: var(--gs-hairline-color, var(--gs-color-border-subtle));
+    pointer-events: none;
+  }
+}
+
+/* Hairline colour from the colour tokens: `hairline-color-titlebar-border`. */
+@utility hairline-color-* {
+  --gs-hairline-color: --value(--color-*);
 }
 
 /* VS Code-style thin scrollbars that appear on hover. */

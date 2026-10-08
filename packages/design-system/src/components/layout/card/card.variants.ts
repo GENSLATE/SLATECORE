@@ -20,9 +20,9 @@ export const cardVariants = tv({
     },
     padding: {
       none: {},
-      sm: { root: 'gap-2 p-3' },
-      md: { root: 'gap-3 p-4' },
-      lg: { root: 'gap-4 p-6' },
+      sm: { root: 'gap-2 p-[calc(--spacing(3)-1px)]' },
+      md: { root: 'gap-3 p-[calc(--spacing(4)-1px)]' },
+      lg: { root: 'gap-4 p-[calc(--spacing(6)-1px)]' },
     },
     interactive: {
       true: {

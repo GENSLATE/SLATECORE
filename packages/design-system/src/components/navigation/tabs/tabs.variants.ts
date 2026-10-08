@@ -22,7 +22,7 @@ export const tabsVariants = tv({
         root: 'flex-col',
         list: [
           'hairline-b items-stretch gap-0',
-          'data-[orientation=vertical]:hairline-r data-[orientation=vertical]:flex-col data-[orientation=vertical]:border-b-0',
+          'data-[orientation=vertical]:hairline-r data-[orientation=vertical]:flex-col',
         ],
         tab: [
           'focus-ring-inset h-tabbar px-3 text-base text-fg-muted',
@@ -30,8 +30,8 @@ export const tabsVariants = tv({
           'data-[orientation=vertical]:h-row-md data-[orientation=vertical]:justify-start',
         ],
         indicator: [
-          '-bottom-px left-0 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) rounded-full bg-tab-indicator',
-          'data-[orientation=vertical]:top-0 data-[orientation=vertical]:-right-px data-[orientation=vertical]:bottom-auto data-[orientation=vertical]:left-auto',
+          'bottom-0 left-0 z-raised h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) rounded-full bg-tab-indicator',
+          'data-[orientation=vertical]:top-0 data-[orientation=vertical]:right-0 data-[orientation=vertical]:bottom-auto data-[orientation=vertical]:left-auto',
           'data-[orientation=vertical]:h-(--active-tab-height) data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:translate-x-0 data-[orientation=vertical]:translate-y-(--active-tab-top)',
           'window-inactive:bg-fg-disabled',
         ],

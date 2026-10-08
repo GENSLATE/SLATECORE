@@ -38,7 +38,7 @@ export const dialogVariants = tv({
 /** Footer push buttons (kept local so overlays don't depend on the actions package). */
 export const dialogButtonVariants = tv({
   base: [
-    'focus-ring inline-flex h-control-md min-w-20 cursor-interactive items-center justify-center gap-1.5 rounded-control border border-transparent px-3',
+    'focus-ring inline-flex h-control-md min-w-20 cursor-interactive items-center justify-center gap-1.5 rounded-control border border-transparent px-[calc(--spacing(3)-1px)]',
     'select-none whitespace-nowrap font-medium text-base',
     'transition-colors duration-fast ease-standard',
     'disabled:pointer-events-none disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50',

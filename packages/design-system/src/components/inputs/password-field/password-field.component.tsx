@@ -39,7 +39,7 @@ export function PasswordField({
     <button
       type="button"
       data-slot="password-field-toggle"
-      aria-label={shown ? (labels?.hide ?? 'Hide password') : (labels?.show ?? 'Show password')}
+      aria-label={labels?.show ?? 'Show password'}
       aria-pressed={shown}
       disabled={disabled}
       className={passwordFieldToggleVariants()}

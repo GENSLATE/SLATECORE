@@ -67,6 +67,35 @@ async function classesOf(file: string): Promise<Set<string>> {
   return classes;
 }
 
+/** Class lists per styled element: one group per tv base / slot / variant value / compound. */
+function collectGroups(value: unknown, into: string[][]): void {
+  if (typeof value === 'string') {
+    into.push(value.split(/\s+/).filter(Boolean));
+  } else if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
+    into.push(value.flatMap((item: string) => item.split(/\s+/)).filter(Boolean));
+  } else if (Array.isArray(value)) {
+    for (const item of value) collectGroups(item, into);
+  } else if (value != null && typeof value === 'object') {
+    for (const item of Object.values(value)) collectGroups(item, into);
+  }
+}
+
+async function classGroupsOf(file: string): Promise<string[][]> {
+  const groups: string[][] = [];
+  const mod = (await import(file)) as Record<string, unknown>;
+  for (const exported of Object.values(mod)) {
+    if (typeof exported !== 'function') continue;
+    const component = exported as unknown as TvLike;
+    collectGroups(component.base, groups);
+    collectGroups(component.slots, groups);
+    collectGroups(component.variants, groups);
+    for (const compound of component.compoundVariants ?? []) {
+      collectGroups(compound.class ?? compound.className, groups);
+    }
+  }
+  return groups;
+}
+
 /** The utility part of a class: variants (`hover:`, `data-[x=y]:`) and `!` stripped. */
 function utilityOf(candidate: string): string {
   let depth = 0;
@@ -229,6 +258,94 @@ describe('flat Nord style rules', () => {
       expect(body, name).toContain('focus-visible');
       expect(body, name).not.toContain('box-shadow');
     }
+  });
+});
+
+describe('pixel-exact layout', () => {
+  test('fixed_height_bars_never_spend_height_on_a_border', async () => {
+    // A fixed token height (h-titlebar, h-8, …) plus a top/bottom border would push centred
+    // children onto half pixels. Such bars draw their separator with a hairline-* utility.
+    const fixedHeight = /^h-(?!full$|auto$|fit$|px$|screen$|dvh$|min$|max$|0$)[\w.()-]+$/;
+    const verticalBorder = /^border-(t|b|y)(-\d+)?$/;
+    const offenders: string[] = [];
+    for (const file of [...variantFiles, ...recipeFiles]) {
+      for (const group of await classGroupsOf(file)) {
+        const utilities = group.map(utilityOf);
+        if (!utilities.some((u) => fixedHeight.test(u))) continue;
+        const borders = group.filter((c) => verticalBorder.test(utilityOf(c)));
+        if (borders.length > 0) offenders.push(`${rel(file)}: ${borders.join(' ')}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+
+    const bars: [string, string][] = [
+      ['window/title-bar/title-bar.variants.ts', 'hairline-b'],
+      ['window/status-bar/status-bar.variants.ts', 'hairline-t'],
+      ['navigation/tabs/tabs.variants.ts', 'hairline-b'],
+      ['actions/toolbar/toolbar.variants.ts', 'hairline-b'],
+      ['overlays/command-palette/command-palette.variants.ts', 'hairline-b'],
+    ];
+    for (const [file, hairline] of bars) {
+      const text = readFileSync(join(srcRoot, 'components', file), 'utf8');
+      expect(text, file).toContain(hairline);
+    }
+  });
+
+  test('hairlines_take_no_layout_space', async () => {
+    const names = ['hairline-t', 'hairline-b', 'hairline-l', 'hairline-r'];
+    const css = await buildCss([...names, 'hairline-color-titlebar-border']);
+    for (const name of names) {
+      const rule = blocksMatching(css, new RegExp(`\\.${name}\\s*\\{`)).join('\n');
+      expect(rule, name).toContain('&::after');
+      expect(rule, name).toContain('position: absolute');
+      expect(rule, name).toMatch(/(width|height): 1px/);
+      expect(rule, name).not.toMatch(/border(-(top|bottom|left|right))?(-width)?:/);
+      expect(rule, name).not.toContain('box-shadow');
+    }
+    const color = blocksMatching(css, /\.hairline-color-titlebar-border\s*\{/).join('\n');
+    expect(color).toContain('--gs-hairline-color: var(--gs-titlebar-border)');
+  });
+
+  test('bordered_auto_width_controls_keep_their_padded_size', async () => {
+    // These gained a 1px border in the flat restyle: their padding gives the pixel back, so
+    // the outer size stays on the spacing grid (e.g. md button: 1px border + 11px = 12px).
+    // [file, export, slot] — the element that carries the border.
+    const targets: [string, string, string | null][] = [
+      ['actions/button/button.variants.ts', 'buttonVariants', 'root'],
+      ['actions/toggle-button/toggle-button.variants.ts', 'toggleButtonVariants', null],
+      ['feedback/badge/badge.variants.ts', 'badgeVariants', 'root'],
+      ['display/kbd/kbd.variants.ts', 'kbdVariants', 'key'],
+      ['layout/card/card.variants.ts', 'cardVariants', 'root'],
+      ['overlays/dialog/dialog.variants.ts', 'dialogButtonVariants', null],
+    ];
+    const pick = (value: unknown, slot: string | null): unknown =>
+      slot == null || typeof value === 'string' || Array.isArray(value)
+        ? value
+        : (value as Record<string, unknown> | undefined)?.[slot];
+    const plainPadding = /^p[xy]?-[\d.]+$/;
+    const offenders: string[] = [];
+    for (const [file, name, slot] of targets) {
+      const mod = (await import(join(srcRoot, 'components', file))) as Record<string, TvLike>;
+      const component = mod[name];
+      expect(component, file).toBeDefined();
+      const set = new Set<string>();
+      collectClasses(slot == null ? component?.base : pick(component?.slots, slot), set);
+      for (const variant of Object.values((component?.variants ?? {}) as Record<string, object>)) {
+        for (const value of Object.values(variant)) collectClasses(pick(value, slot), set);
+      }
+      for (const compound of component?.compoundVariants ?? []) {
+        collectClasses(pick(compound.class, slot), set);
+      }
+      const classes = [...set].map(utilityOf);
+      expect(classes, file).toContain('border');
+      expect(
+        classes.some((c) => /^p[xy]?-\[calc\(--spacing\([\d.]+\)-1px\)\]$/.test(c)),
+        file,
+      ).toBe(true);
+      for (const c of classes)
+        if (plainPadding.test(c) && c !== 'px-0') offenders.push(`${file}: ${c}`);
+    }
+    expect(offenders).toEqual([]);
   });
 });
 

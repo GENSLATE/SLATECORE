@@ -2,10 +2,11 @@ import type { ReactNode } from 'react';
 import type { TextFieldProps } from '../text-field/text-field.types';
 
 export interface PasswordFieldLabels {
-  /** Accessible name of the toggle while the value is hidden. */
+  /**
+   * Accessible name of the reveal toggle (default "Show password"). It stays the same in both
+   * states; `aria-pressed` tells whether the password is shown.
+   */
   show?: string | undefined;
-  /** Accessible name of the toggle while the value is shown. */
-  hide?: string | undefined;
 }
 
 export interface PasswordFieldProps

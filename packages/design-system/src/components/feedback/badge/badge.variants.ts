@@ -20,8 +20,8 @@ export const badgeVariants = tv({
       outline: { root: 'bg-transparent' },
     },
     size: {
-      sm: { root: 'h-4 rounded-xs px-1 text-2xs' },
-      md: { root: 'h-5 rounded-sm px-1.5 text-xs' },
+      sm: { root: 'h-4 rounded-xs px-[calc(--spacing(1)-1px)] text-2xs' },
+      md: { root: 'h-5 rounded-sm px-[calc(--spacing(1.5)-1px)] text-xs' },
     },
     pill: {
       true: { root: 'rounded-full' },
@@ -114,11 +114,15 @@ export const badgeVariants = tv({
       tone: 'info',
       class: { root: 'border-info-border text-info-fg' },
     },
-    { pill: true, size: 'sm', class: { root: 'min-w-4 justify-center px-1' } },
+    {
+      pill: true,
+      size: 'sm',
+      class: { root: 'min-w-4 justify-center px-[calc(--spacing(1)-1px)]' },
+    },
     {
       pill: true,
       size: 'md',
-      class: { root: 'min-w-5 justify-center px-1.5' },
+      class: { root: 'min-w-5 justify-center px-[calc(--spacing(1.5)-1px)]' },
     },
   ],
   defaultVariants: {

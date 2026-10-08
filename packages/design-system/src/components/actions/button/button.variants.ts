@@ -52,10 +52,10 @@ export const buttonVariants = tv({
       },
     },
     size: {
-      xs: { root: 'h-control-xs gap-1 rounded-sm px-1.5 text-xs' },
-      sm: { root: 'h-control-sm gap-1 rounded-control px-2 text-sm' },
-      md: { root: 'h-control-md gap-1.5 rounded-control px-3 text-base' },
-      lg: { root: 'h-control-lg gap-2 rounded-control px-4 text-md' },
+      xs: { root: 'h-control-xs gap-1 rounded-sm px-[calc(--spacing(1.5)-1px)] text-xs' },
+      sm: { root: 'h-control-sm gap-1 rounded-control px-[calc(--spacing(2)-1px)] text-sm' },
+      md: { root: 'h-control-md gap-1.5 rounded-control px-[calc(--spacing(3)-1px)] text-base' },
+      lg: { root: 'h-control-lg gap-2 rounded-control px-[calc(--spacing(4)-1px)] text-md' },
     },
     fullWidth: {
       true: { root: 'w-full' },

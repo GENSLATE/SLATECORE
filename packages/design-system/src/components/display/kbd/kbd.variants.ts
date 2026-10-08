@@ -15,8 +15,8 @@ export const kbdVariants = tv({
       inline: { root: 'tabular-nums tracking-wide', key: '' },
     },
     size: {
-      sm: { root: 'text-2xs', key: 'h-4 min-w-4 px-1 text-2xs' },
-      md: { root: 'text-xs', key: 'h-5 min-w-5 px-1.5 text-xs' },
+      sm: { root: 'text-2xs', key: 'h-4 min-w-4 px-[calc(--spacing(1)-1px)] text-2xs' },
+      md: { root: 'text-xs', key: 'h-5 min-w-5 px-[calc(--spacing(1.5)-1px)] text-xs' },
     },
   },
   defaultVariants: { variant: 'keycap', size: 'md' },

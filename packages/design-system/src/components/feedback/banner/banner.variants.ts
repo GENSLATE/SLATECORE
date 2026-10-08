@@ -19,7 +19,9 @@ export const bannerVariants = tv({
       danger: { root: 'bg-danger-subtle', icon: 'text-danger-fg' },
     },
     variant: {
-      inline: { root: 'rounded-card border px-3 py-2.5' },
+      inline: {
+        root: 'rounded-card border px-[calc(--spacing(3)-1px)] py-[calc(--spacing(2.5)-1px)]',
+      },
       bar: { root: 'hairline-b px-3 py-1.5' },
     },
   },

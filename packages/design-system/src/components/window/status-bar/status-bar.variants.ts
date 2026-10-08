@@ -5,7 +5,7 @@ export const statusBarVariants = tv({
   slots: {
     root: [
       'relative z-chrome flex h-statusbar shrink-0 items-stretch justify-between gap-2 overflow-hidden',
-      'chrome border-statusbar-border border-t bg-statusbar-bg text-statusbar-fg text-xs',
+      'chrome hairline-t hairline-color-statusbar-border bg-statusbar-bg text-statusbar-fg text-xs',
       'window-inactive:text-titlebar-fg-inactive',
     ],
     section: 'flex min-w-0 items-stretch',

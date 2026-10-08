@@ -8,7 +8,7 @@ export const titleBarVariants = tv({
   slots: {
     root: [
       'relative z-chrome grid h-titlebar shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center',
-      'chrome border-titlebar-border border-b bg-titlebar-bg text-titlebar-fg',
+      'chrome hairline-b hairline-color-titlebar-border bg-titlebar-bg text-titlebar-fg',
       'transition-colors duration-fast ease-standard',
       'data-inactive:bg-titlebar-bg-inactive data-inactive:text-titlebar-fg-inactive',
     ],
