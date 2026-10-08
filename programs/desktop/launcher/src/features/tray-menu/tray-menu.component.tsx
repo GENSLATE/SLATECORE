@@ -88,7 +88,7 @@ export function TrayMenu({ initialAnchor }: TrayMenuProps) {
         sideOffset={0}
         // Named by the header, not by the invisible anchor that stands in for a trigger.
         aria-labelledby={titleId}
-        className="w-68"
+        className="w-72"
       >
         <MenuHeader
           media={<img src={markUrl} alt="" draggable={false} />}

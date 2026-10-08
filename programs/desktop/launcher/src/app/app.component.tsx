@@ -150,6 +150,7 @@ export function App() {
         size={settings.config.appearance.size}
         titleBar={
           <LauncherTitleBar
+            mode={context.mode}
             pinned={pinned}
             pinShortcut={keys.togglePin}
             onTogglePin={c.togglePin}

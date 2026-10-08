@@ -31,7 +31,7 @@ export interface DocumentsRailProps {
 }
 
 const ROW = cn(
-  'group/folder flex h-7 w-full cursor-default items-center gap-2 rounded-md px-2 text-fg-secondary text-sm',
+  'group/folder flex h-7 w-full cursor-interactive items-center gap-2 rounded-md px-2 text-fg-secondary text-sm',
   'focus-ring transition-colors duration-fast ease-standard hover:bg-fill-hover hover:text-fg-strong active:bg-fill-pressed',
 );
 
@@ -140,7 +140,7 @@ function ProfileCard({
         data-folder="storage"
         onClick={onOpenStorage}
         className={cn(
-          'group/profile flex cursor-default items-center gap-2.5 rounded-lg px-2 py-2',
+          'group/profile flex cursor-interactive items-center gap-2.5 rounded-lg px-2 py-2',
           'focus-ring transition-colors duration-fast ease-standard hover:bg-fill-hover active:bg-fill-pressed',
         )}
       >

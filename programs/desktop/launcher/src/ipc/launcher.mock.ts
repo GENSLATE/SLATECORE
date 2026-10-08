@@ -1,3 +1,4 @@
+// cspell:words aistudio phyrox qbittorrent inkscape
 /**
  * In-memory launcher backend for a plain browser (`bun run dev --web`) and the unit tests: a
  * plausible drive (apps from all three sources, favorites, recent and unavailable apps, a drive
@@ -43,6 +44,8 @@ export interface MockOptions {
   readonly status?: StatusMode | undefined;
   /** Initial vault state. @default 'locked' */
   readonly vault?: VaultState | undefined;
+  /** Why the settings file was ignored (shows the status bar's warning). */
+  readonly issue?: string | undefined;
   /**
    * Browser preview niceties: hiding comes back after a moment, the tray menu reopens, vault
    * calls take as long as a real key derivation. Off in tests.
@@ -80,7 +83,7 @@ const GENSLATE: readonly Seed[] = [
   ['coder', 'Coder', 'A focused code editor for your projects', 'Development', 'ready', 'nord10'],
   ['editor', 'Editor', 'Notes, plain text and Markdown', 'Office', 'running', 'nord9'],
   ['browser', 'Browser', 'A private, portable web browser', 'Internet', 'ready', 'nord7'],
-  ['gallery', 'Gallery', 'View and organise your pictures', 'Media', 'ready', 'nord15'],
+  ['gallery', 'Gallery', 'View and organize your pictures', 'Media', 'ready', 'nord15'],
   ['jukebox', 'Jukebox', 'Play your music library and playlists', 'Media', 'ready', 'nord11'],
   ['theater', 'Theater', 'Watch videos and films', 'Media', 'missing-exe', 'nord12'],
   [
@@ -236,8 +239,8 @@ function query(name: string): string | null {
 }
 
 /**
- * `?theme=snow-storm&size=l&pinned&status=usage&vault=uninitialized&empty&noThirdParty` in the
- * dev URL tweak the preview (handy for screenshots).
+ * `?theme=snow-storm&size=l&pinned&status=usage&vault=uninitialized&empty&noThirdParty&issue`
+ * in the dev URL tweak the preview (handy for screenshots).
  */
 export function mockOptionsFromUrl(): MockOptions {
   const theme = query('theme');
@@ -252,6 +255,9 @@ export function mockOptionsFromUrl(): MockOptions {
     ...(theme === 'snow-storm' || theme === 'polar-night' ? { theme } : {}),
     ...(size === 's' || size === 'l' || size === 'm' ? { size } : {}),
     ...(vault === 'uninitialized' || vault === 'unlocked' ? { vault } : {}),
+    ...(query('issue') === null
+      ? {}
+      : { issue: 'settings.toml line 3: expected a value after "theme ="' }),
   };
 }
 
@@ -371,7 +377,7 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
         tabPortableapps: 'mod+3',
       },
     },
-    issue: null,
+    issue: options.issue ?? null,
   };
 
   type Handler = (payload: unknown) => void;

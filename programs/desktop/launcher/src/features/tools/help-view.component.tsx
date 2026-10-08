@@ -12,16 +12,17 @@ export interface HelpViewProps {
 /** Shortcuts and slash commands, straight from keybindings.toml and the command registry. */
 export function HelpView({ actions, keybindings, onBack }: HelpViewProps) {
   const keys = keybindings.launcher;
-  const shortcuts: readonly (readonly [string, string])[] = [
-    ['Show / hide anywhere', keybindings.global.toggle.toLowerCase()],
-    ['Search', keys.focusSearch],
-    ['Move', 'arrowdown'],
-    ['Open', 'enter'],
-    ['Favorite', keys.toggleFavorite],
-    ['Settings', keys.toggleTools],
-    ['Pin on top', keys.togglePin],
-    ['First tab', keys.tabGenslate],
-    ['Back / hide', 'escape'],
+  // Each row: a label and one or more shortcuts (an empty one is switched off).
+  const shortcuts: readonly (readonly [string, readonly string[]])[] = [
+    ['Show / hide anywhere', [keybindings.global.toggle.toLowerCase()]],
+    ['Search', [keys.focusSearch]],
+    ['Move', ['up', 'down']],
+    ['Open', ['enter']],
+    ['Favorite', [keys.toggleFavorite]],
+    ['Settings', [keys.toggleTools]],
+    ['Pin on top', [keys.togglePin]],
+    ['Switch tab', [keys.tabGenslate, keys.tabPortapps, keys.tabPortableapps]],
+    ['Back / hide', ['escape']],
   ];
   return (
     <PanelSheet title="Help" onBack={onBack}>
@@ -30,12 +31,15 @@ export function HelpView({ actions, keybindings, onBack }: HelpViewProps) {
       </h3>
       <dl className="mb-4 flex flex-col">
         {shortcuts
-          .filter(([, shortcut]) => shortcut !== '')
-          .map(([label, shortcut]) => (
+          .map(([label, list]) => [label, list.filter((shortcut) => shortcut !== '')] as const)
+          .filter(([, list]) => list.length > 0)
+          .map(([label, list]) => (
             <div key={label} className="flex h-7 items-center justify-between gap-2 text-sm">
               <dt className="text-fg-secondary">{label}</dt>
-              <dd>
-                <Kbd shortcut={shortcut} size="sm" />
+              <dd className="flex items-center gap-1">
+                {list.map((shortcut) => (
+                  <Kbd key={shortcut} shortcut={shortcut} size="sm" />
+                ))}
               </dd>
             </div>
           ))}

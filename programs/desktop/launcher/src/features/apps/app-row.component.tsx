@@ -71,7 +71,7 @@ export function AppRow({
       onClick={onLaunch}
       onPointerMove={active ? undefined : onHover}
       className={cn(
-        'motion-row-in group/row relative flex h-launcher-row cursor-default items-center gap-2.5 rounded-lg px-2',
+        'motion-row-in group/row relative flex h-launcher-row cursor-interactive items-center gap-2.5 rounded-lg px-2',
         'transition-colors duration-fast ease-standard',
         'active:bg-fill-pressed data-active:bg-fill-hover',
         launching && 'bg-accent-subtle',

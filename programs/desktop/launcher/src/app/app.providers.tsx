@@ -10,6 +10,15 @@ import { type ReactNode, useState } from 'react';
 import { useLauncher } from './launcher.context';
 
 /**
+ * Toasts stack inside the frame, right-aligned above the command bar, as wide as the apps
+ * panel: the OS window is transparent, so anything outside the frame would float on the desktop.
+ */
+const TOAST_PLACEMENT = [
+  'right-[calc(var(--launcher-inset)+0.5rem)] w-[calc(var(--launcher-normal)-var(--spacing-launcher-rail)-1rem)]',
+  'bottom-[calc(var(--launcher-inset)+var(--spacing-launcher-status)+var(--spacing-launcher-band)+0.5rem)]',
+].join(' ');
+
+/**
  * Platform and theme for the whole launcher. The theme comes from settings.toml (never from
  * browser storage): editing the file, the Settings tool or `/theme` update it live.
  */
@@ -35,7 +44,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <TooltipProvider>
         <ToastProvider limit={2} timeout={3500}>
           {children}
-          <ToastViewport />
+          <ToastViewport className={TOAST_PLACEMENT} />
         </ToastProvider>
       </TooltipProvider>
     </DesignSystemProvider>

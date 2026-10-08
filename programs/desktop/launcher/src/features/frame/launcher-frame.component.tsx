@@ -23,7 +23,7 @@ export interface LauncherFrameProps {
 
 /**
  * The launcher frame: one flat surface with a 1px border, pinned to the bottom-right of the
- * fixed-size window. The rail is a colour step darker and meets the main panel at a hairline.
+ * fixed-size window. The rail is a color step darker and meets the main panel at a hairline.
  * Opening a tool widens the frame from NORMAL to EXPANDED (`.launcher-frame`, styles/main.css).
  */
 export function LauncherFrame({

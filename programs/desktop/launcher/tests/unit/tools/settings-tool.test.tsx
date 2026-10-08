@@ -1,9 +1,10 @@
+// cspell:ignore borealiz
 import { describe, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { screen, waitFor, within } from '@testing-library/react';
 
 import { MOCK_VAULT_PASSWORD } from '../../../src/ipc/launcher.mock';
-import { renderLauncher, renderTrayMenu } from '../launcher.harness';
+import { renderLauncher, renderTrayMenu, settle } from '../launcher.harness';
 
 const search = () => screen.getByRole('combobox', { name: /Search apps/ });
 const settings = () => screen.getByRole('region', { name: 'Settings' });
@@ -96,6 +97,30 @@ describe('Settings tool', () => {
     await user.click(within(settings()).getByRole('button', { name: 'Snow Storm' }));
     expect(backend.setSetting).toHaveBeenCalledWith('theme', 'snow-storm');
     await waitFor(() => expect(document.documentElement.dataset['theme']).toBe('snow-storm'));
+  });
+
+  test('theme_picker_previews_each_theme_and_marks_the_current_one', async () => {
+    const { user } = await renderLauncher({ theme: 'snow-storm' });
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    const picker = within(settings()).getByRole('group', { name: 'Color theme' });
+    const options = within(picker).getAllByRole('button');
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Polar Night',
+      'Snow Storm',
+      'System',
+    ]);
+    expect(options.map((option) => option.getAttribute('aria-pressed'))).toEqual([
+      'false',
+      'true',
+      'false',
+    ]);
+    // Each card previews its theme with the theme's own tokens.
+    const previews = [...picker.querySelectorAll('[data-slot="theme-preview"]')];
+    expect(previews.map((preview) => preview.getAttribute('data-theme'))).toEqual([
+      'polar-night',
+      'snow-storm',
+      null,
+    ]);
   });
 
   test('size presets write the size setting', async () => {
@@ -202,6 +227,7 @@ describe('Settings tool', () => {
     await renderTrayMenu();
     await user.click(await screen.findByRole('menuitem', { name: 'Settings' }));
     await screen.findByRole('menu', { name: 'Settings' });
+    await settle();
     expect(startupControls()).toEqual([]);
 
     const files = await sourceFiles(new URL('../../../src/', import.meta.url));

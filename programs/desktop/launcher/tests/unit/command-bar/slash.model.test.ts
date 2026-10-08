@@ -42,6 +42,17 @@ describe('parseSlash', () => {
     ]);
   });
 
+  test('choice values name what they pick', () => {
+    const themes = parseSlash('/theme ', ACTIONS, APPS).suggestions;
+    expect(themes.map((s) => (s.kind === 'value' ? [s.value, s.detail] : s.kind))).toEqual([
+      ['system', 'Follow Windows'],
+      ['dark', 'Polar Night'],
+      ['light', 'Snow Storm'],
+    ]);
+    const about = parseSlash('/settings ab', ACTIONS, APPS).suggestions[0];
+    expect(about).toMatchObject({ kind: 'value', value: 'about', detail: 'About this drive' });
+  });
+
   test('app arguments suggest apps by fuzzy name', () => {
     const parse = parseSlash('/open exp', ACTIONS, APPS);
     expect(parse.suggestions[0]).toMatchObject({

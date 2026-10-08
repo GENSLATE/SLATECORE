@@ -31,22 +31,39 @@ export interface SettingsRowProps {
   readonly control?: ReactNode | undefined;
   /** Id of the label, for controls named by it (`aria-labelledby`). */
   readonly labelId?: string | undefined;
+  /** Puts the control under the text, full width (for wide controls such as the theme cards). */
+  readonly stacked?: boolean | undefined;
   readonly className?: string | undefined;
 }
 
-/** One setting: label and description on the left, its control on the right. */
-export function SettingsRow({ label, description, control, labelId, className }: SettingsRowProps) {
+/** One setting: label and description on the left, its control on the right (or below). */
+export function SettingsRow({
+  label,
+  description,
+  control,
+  labelId,
+  stacked = false,
+  className,
+}: SettingsRowProps) {
   return (
-    <div className={cn('flex min-h-12 items-center gap-4 px-3.5 py-2.5', className)}>
+    <div
+      className={cn(
+        'flex min-h-12 gap-4 px-3.5 py-2.5',
+        stacked ? 'flex-col items-stretch gap-3 pb-3.5' : 'items-center',
+        className,
+      )}
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span id={labelId} className="font-medium text-fg-strong text-sm">
+        <span id={labelId} className="font-medium text-base text-fg-strong">
           {label}
         </span>
         {description === undefined ? null : (
-          <span className="text-fg-muted text-xs leading-relaxed">{description}</span>
+          <span className="text-fg-muted text-xs leading-4.5">{description}</span>
         )}
       </div>
-      {control === undefined ? null : <div className="shrink-0">{control}</div>}
+      {control === undefined ? null : (
+        <div className={stacked ? 'min-w-0' : 'shrink-0'}>{control}</div>
+      )}
     </div>
   );
 }

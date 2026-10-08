@@ -111,6 +111,22 @@ describe('launcher frame', () => {
     expect(bar).toHaveTextContent(/\d+(\.\d)? GB free/);
   });
 
+  test('an_ignored_settings_file_shows_a_warning_that_opens_it', async () => {
+    const { backend, user } = await renderLauncher({ issue: 'line 3: expected a value' });
+    const bar = document.querySelector('[data-slot="launcher-status-bar"]');
+    if (!(bar instanceof HTMLElement)) throw new Error('status bar missing');
+    await user.click(within(bar).getByRole('button', { name: 'Settings' }));
+    expect(backend.openConfigFile).toHaveBeenCalledWith('settings');
+  });
+
+  test('run_mode_badge_sits_in_the_titlebar_not_the_status_bar', async () => {
+    await renderLauncher();
+    const titleBar = document.querySelector('[data-slot="launcher-titlebar"]');
+    const statusBar = document.querySelector('[data-slot="launcher-status-bar"]');
+    expect(titleBar).toHaveTextContent('PREVIEW');
+    expect(statusBar).not.toHaveTextContent('PREVIEW');
+  });
+
   test('rail_lists_desktop_documents_downloads_music_pictures_videos_then_vault', async () => {
     await renderLauncher();
     const folders = within(screen.getByRole('list', { name: 'Folders' })).getAllByRole('button');

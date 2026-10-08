@@ -87,7 +87,7 @@ function VaultStatusCard({ status }: { status: VaultStatusDto }) {
             {status.state === 'uninitialized' ? 'Not set up' : unlocked ? 'Unlocked' : 'Locked'}
           </Badge>
         </div>
-        <p className="text-fg-muted text-xs leading-relaxed">{detail}</p>
+        <p className="text-fg-muted text-xs leading-4.5">{detail}</p>
       </div>
     </div>
   );
@@ -325,11 +325,11 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
       </div>
 
       <SettingsGroup title="Files">
-        <div className="hairline-b flex h-9 items-center gap-1 px-2 text-sm">
+        <div className="flex h-9 items-center gap-1 px-2 text-sm">
           <button
             type="button"
             onClick={() => setDir('')}
-            className="focus-ring flex h-6 cursor-default items-center gap-1.5 rounded-sm px-1.5 text-fg-secondary hover:bg-fill-hover hover:text-fg-strong"
+            className="focus-ring flex h-6 cursor-interactive items-center gap-1.5 rounded-sm px-1.5 text-fg-secondary hover:bg-fill-hover hover:text-fg-strong"
           >
             <Icon name="codicon:lock" size={12} />
             Vault
@@ -342,7 +342,7 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
                   <button
                     type="button"
                     onClick={() => setDir(parts.slice(0, index + 1).join('/'))}
-                    className="focus-ring h-6 cursor-default rounded-sm px-1.5 text-fg-secondary hover:bg-fill-hover hover:text-fg-strong"
+                    className="focus-ring h-6 cursor-interactive rounded-sm px-1.5 text-fg-secondary hover:bg-fill-hover hover:text-fg-strong"
                   >
                     {part}
                   </button>
@@ -381,7 +381,7 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
                 <button
                   type="button"
                   onClick={() => open(entry)}
-                  className="focus-ring group/entry flex h-9 w-full cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-sm transition-colors duration-fast ease-standard hover:bg-fill-hover"
+                  className="focus-ring group/entry flex h-9 w-full cursor-interactive items-center gap-2.5 rounded-md px-2.5 text-left text-sm transition-colors duration-fast ease-standard hover:bg-fill-hover"
                 >
                   <Icon
                     name={entry.kind === 'dir' ? 'codicon:folder' : 'codicon:file-text'}
@@ -406,7 +406,7 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
 
       <ChangePassword />
 
-      <p className="px-1 text-fg-muted text-xs leading-relaxed">
+      <p className="px-1 text-fg-muted text-xs leading-4.5">
         The vault locks itself after 10 minutes without use, when the launcher stays hidden, and
         when it quits.
         {status.foreignItems > 0

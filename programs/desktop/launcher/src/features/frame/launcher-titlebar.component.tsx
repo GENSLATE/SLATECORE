@@ -1,8 +1,17 @@
-import { IconButton } from '@genslate/design-system';
+import { Badge, IconButton } from '@genslate/design-system';
 
 import markUrl from '../../assets/launcher-mark.svg';
+import type { RunMode } from '../../ipc/launcher.types';
+
+const MODE_BADGE: Readonly<Record<RunMode, string | null>> = {
+  suite: null,
+  dev: 'DEV',
+  web: 'PREVIEW',
+};
 
 export interface LauncherTitleBarProps {
+  /** Where the launcher runs from: a development build or the browser preview say so. */
+  readonly mode: RunMode;
   readonly pinned: boolean;
   readonly pinShortcut: string;
   readonly onTogglePin: () => void;
@@ -15,11 +24,13 @@ export interface LauncherTitleBarProps {
  * hiding sends it back to the notification area.
  */
 export function LauncherTitleBar({
+  mode,
   pinned,
   pinShortcut,
   onTogglePin,
   onHide,
 }: LauncherTitleBarProps) {
+  const badge = MODE_BADGE[mode];
   return (
     <header
       data-slot="launcher-titlebar"
@@ -32,6 +43,11 @@ export function LauncherTitleBar({
           <span className="font-semibold text-fg-strong">SLATECORE</span>{' '}
           <span className="font-medium text-fg-muted">LAUNCHER</span>
         </span>
+        {badge === null ? null : (
+          <Badge size="sm" className="font-semibold tracking-wider">
+            {badge}
+          </Badge>
+        )}
       </div>
       <IconButton
         size="sm"

@@ -1,4 +1,4 @@
-import { Icon, IconButton, ProgressBar, Tooltip } from '@genslate/design-system';
+import { cn, Icon, IconButton, ProgressBar, Tooltip } from '@genslate/design-system';
 import { type ReactNode, useEffect, useState } from 'react';
 
 import { useLauncher } from '../../app/launcher.context';
@@ -13,15 +13,17 @@ export interface LauncherStatusBarProps {
 
 /**
  * The frame's bottom edge: the drive the launcher runs from (letter, name, free space) on the
- * left; CPU/GPU temperatures, or usage and network, on the right. Readings the machine can't
- * provide are hidden; sampling only runs while the launcher is visible.
+ * left; CPU/GPU temperatures or usage on the right, plus the network speed once the frame is
+ * wide enough (a tool is open). Readings the machine can't provide are hidden; sampling only
+ * runs while the launcher is visible. Values sit in fixed-width slots, so nothing shifts as
+ * they change.
  */
 export function LauncherStatusBar({
   mode,
   onModeChange,
   onOpenSettingsFile,
 }: LauncherStatusBarProps) {
-  const { backend, stage, showCount, settings, context } = useLauncher();
+  const { backend, stage, showCount, settings } = useLauncher();
   const [volume, setVolume] = useState<VolumeInfo | null>(null);
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
 
@@ -52,7 +54,7 @@ export function LauncherStatusBar({
       data-slot="launcher-status-bar"
       data-context-zone="statusbar"
       data-has-temps={hasTemps || undefined}
-      className="hairline-t flex h-full items-center gap-3 bg-surface-sidebar pr-1.5 pl-3 text-fg-muted text-xs tabular-nums"
+      className="@container/status hairline-t flex h-full items-center gap-3 bg-surface-sidebar pr-1.5 pl-3 text-fg-muted text-xs tabular-nums"
     >
       {volume === null ? null : <DriveMeter volume={volume} />}
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
@@ -61,17 +63,12 @@ export function LauncherStatusBar({
             <button
               type="button"
               onClick={onOpenSettingsFile}
-              className="focus-ring flex cursor-default items-center gap-1 rounded-sm px-1 text-warning-fg hover:bg-fill-hover"
+              className="focus-ring flex cursor-interactive items-center gap-1 rounded-sm px-1 text-warning-fg hover:bg-fill-hover"
             >
               <Icon name="codicon:warning" size={12} />
               Settings
             </button>
           </Tooltip>
-        )}
-        {context.mode === 'suite' ? null : (
-          <span className="rounded-sm bg-fill-hover px-1 font-semibold text-2xs tracking-wider">
-            {context.mode === 'dev' ? 'DEV' : 'PREVIEW'}
-          </span>
         )}
         {telemetry === null ? null : <Readings telemetry={telemetry} mode={effective} />}
         {hasTemps ? (
@@ -128,7 +125,7 @@ function Readings({ telemetry, mode }: { telemetry: Telemetry; mode: StatusMode 
     if (telemetry.gpuUsagePct !== null)
       items.push(<Reading key="gpu" label="GPU" value={formatPercent(telemetry.gpuUsagePct)} />);
     if (telemetry.netDownBps !== null)
-      items.push(<Reading key="down" icon="down" value={formatRate(telemetry.netDownBps)} />);
+      items.push(<Reading key="down" icon="down" wide value={formatRate(telemetry.netDownBps)} />);
   }
   return (
     <span key={mode} className="motion-fade-up flex items-center gap-2.5" aria-live="off">
@@ -137,13 +134,35 @@ function Readings({ telemetry, mode }: { telemetry: Telemetry; mode: StatusMode 
   );
 }
 
-function Reading({ label, icon, value }: { label?: string; icon?: 'down'; value: string }) {
+interface ReadingProps {
+  readonly label?: string;
+  readonly icon?: 'down';
+  /** Shown only while the frame is wide (a tool is open); the narrow one keeps the drive name. */
+  readonly wide?: boolean;
+  readonly value: string;
+}
+
+// Fixed-width value slots: a reading that changes never nudges its neighbors.
+const READING_SLOT = 'min-w-[3ch] text-right';
+const RATE_SLOT = 'min-w-[8ch]';
+
+function Reading({ label, icon, wide = false, value }: ReadingProps) {
   const name = label ?? 'Download';
   return (
-    <span data-context-copy={`${name} ${value}`} className="flex items-center gap-1">
+    <span
+      data-context-copy={`${name} ${value}`}
+      className={cn('items-center gap-1', wide ? '@min-[36rem]/status:flex hidden' : 'flex')}
+    >
       {icon === undefined ? null : <Icon name="codicon:arrow-down" size={12} />}
       {label === undefined ? null : <span>{label}</span>}
-      <span className="font-medium text-fg-secondary">{value}</span>
+      <span
+        className={cn(
+          'font-medium text-fg-secondary',
+          icon === undefined ? READING_SLOT : RATE_SLOT,
+        )}
+      >
+        {value}
+      </span>
     </span>
   );
 }

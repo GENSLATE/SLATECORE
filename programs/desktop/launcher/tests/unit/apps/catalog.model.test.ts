@@ -1,3 +1,4 @@
+// cspell:words aistudio phyrox
 import { describe, expect, test } from 'bun:test';
 
 import {
@@ -87,6 +88,27 @@ describe('search strictness', () => {
     const apps = [app('genslate/example'), app('portableapps/KeePassXC', { name: 'KeePassXC' })];
     expect(searchApps(apps, 'ex').map((a) => a.id)).toEqual(['genslate/example']);
     expect(searchApps(apps, 'kpx').map((a) => a.id)).toEqual(['portableapps/KeePassXC']);
+  });
+});
+
+describe('search relevance', () => {
+  test('descriptions and categories need the query as written; names may be fuzzy', () => {
+    const apps = [
+      app('portableapps/FirefoxPortable', { name: 'Mozilla Firefox', description: 'Web browser' }),
+      app('portapps/phyrox-portable', {
+        name: 'Phyrox',
+        description: 'Firefox build tuned for privacy',
+      }),
+      app('portableapps/7-ZipPortable', { name: '7-Zip', description: 'File archiver' }),
+      app('genslate/coder', { description: 'A focused code editor for your projects' }),
+      app('portableapps/LibreOfficePortable', { name: 'LibreOffice', category: 'Office' }),
+    ];
+    expect(searchApps(apps, 'fire').map((a) => a.id)).toEqual([
+      'portableapps/FirefoxPortable',
+      'portapps/phyrox-portable',
+    ]);
+    expect(searchApps(apps, 'mzf').map((a) => a.id)).toEqual(['portableapps/FirefoxPortable']);
+    expect(searchApps(apps, 'archiver').map((a) => a.id)).toEqual(['portableapps/7-ZipPortable']);
   });
 });
 

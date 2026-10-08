@@ -25,7 +25,7 @@ export function AppGroupHeader({ group, collapsed, onToggle }: AppGroupHeaderPro
       aria-expanded={!collapsed}
       onClick={onToggle}
       className={cn(
-        'sticky top-0 z-raised flex h-7 w-full cursor-default items-center gap-1.5 rounded-md bg-surface px-2',
+        'sticky top-0 z-raised flex h-7 w-full cursor-interactive items-center gap-1.5 rounded-md bg-surface px-2',
         'font-semibold text-2xs text-fg-muted uppercase tracking-wider',
         'focus-ring-inset transition-colors duration-fast ease-standard hover:text-fg-secondary',
       )}

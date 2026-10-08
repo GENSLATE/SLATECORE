@@ -225,11 +225,6 @@ export interface EntryDto {
   readonly modifiedMs: number;
 }
 
-export interface ProgressDto {
-  readonly done: number;
-  readonly total: number;
-}
-
 export interface LockReportDto {
   readonly synced: readonly string[];
   readonly unsynced: readonly string[];

@@ -1,9 +1,16 @@
 import { SegmentedControl, SegmentedControlItem } from '@genslate/design-system';
 
 import { useLauncher } from '../../app/launcher.context';
-import type { SizePreset, StatusMode, ThemeSetting } from '../../ipc/launcher.types';
+import type { SizePreset, StatusMode } from '../../ipc/launcher.types';
 import { SettingsGroup, SettingsRow } from './settings-row.component';
+import { ThemePicker } from './theme-picker.component';
 import { useReport } from './use-report.hook';
+
+/**
+ * One fixed width for both segmented controls: they line up, and their segments land on whole
+ * pixels (240 − 2 border − 4 padding = 234, split in 2 or 3).
+ */
+const SEGMENTS = 'w-60';
 
 /** Theme, window size and the status bar readings, written to settings.toml. */
 export function AppearanceSection() {
@@ -17,25 +24,16 @@ export function AppearanceSection() {
     <>
       <SettingsGroup title="Theme">
         <SettingsRow
+          stacked
           labelId="settings-theme"
-          label="Colour theme"
-          description="Official Nord: Polar Night is dark, Snow Storm is light."
+          label="Color theme"
+          description="Official Nord: Polar Night is dark, Snow Storm is light, System follows Windows."
           control={
-            <SegmentedControl<ThemeSetting>
-              aria-labelledby="settings-theme"
+            <ThemePicker
+              labelledBy="settings-theme"
               value={theme}
               onValueChange={(value) => write('theme', value)}
-            >
-              <SegmentedControlItem value="polar-night" icon="codicon:color-mode">
-                Polar Night
-              </SegmentedControlItem>
-              <SegmentedControlItem value="snow-storm" icon="codicon:symbol-color">
-                Snow Storm
-              </SegmentedControlItem>
-              <SegmentedControlItem value="system" icon="codicon:vm">
-                System
-              </SegmentedControlItem>
-            </SegmentedControl>
+            />
           }
         />
       </SettingsGroup>
@@ -47,6 +45,7 @@ export function AppearanceSection() {
           control={
             <SegmentedControl<SizePreset>
               aria-labelledby="settings-size"
+              className={SEGMENTS}
               value={size}
               onValueChange={(value) => write('size', value)}
             >
@@ -59,10 +58,11 @@ export function AppearanceSection() {
         <SettingsRow
           labelId="settings-status"
           label="Status bar"
-          description="Readings next to the drive: CPU and GPU temperatures, or usage and network."
+          description="Next to the drive: CPU and GPU temperatures, or usage and network speed."
           control={
             <SegmentedControl<StatusMode>
               aria-labelledby="settings-status"
+              className={SEGMENTS}
               value={settings.config.status.mode}
               onValueChange={(value) => write('statusMode', value)}
             >

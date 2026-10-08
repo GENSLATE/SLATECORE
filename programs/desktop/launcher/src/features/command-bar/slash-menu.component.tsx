@@ -74,7 +74,7 @@ export function SlashMenu({
               onKeyDown={(event) => {
                 if (event.key === 'Enter') onChoose(index);
               }}
-              className="group flex h-8 cursor-default items-center gap-2 rounded-menu-item px-2 data-active:bg-selection data-active:text-fg-strong"
+              className="group flex h-8 cursor-interactive items-center gap-2 rounded-menu-item px-2 data-active:bg-selection data-active:text-fg-strong"
             >
               <SuggestionContent suggestion={suggestion} />
             </div>
@@ -123,7 +123,11 @@ function SuggestionContent({ suggestion }: { suggestion: SlashSuggestion }) {
         shortcut="enter"
         variant="inline"
         size="sm"
-        className="ml-auto shrink-0 opacity-0 group-data-active:opacity-100"
+        className={cn(
+          'shrink-0 opacity-0 group-data-active:opacity-100',
+          // The detail already takes the free space; without one the key pushes right itself.
+          suggestion.detail === undefined ? 'ml-auto' : 'ml-2',
+        )}
       />
     </>
   );

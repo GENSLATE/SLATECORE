@@ -60,9 +60,6 @@ export function AboutSection() {
           <p className="text-fg-secondary text-sm">by GENSLATE</p>
           <p className="text-fg-muted text-xs">Version {context.version}</p>
         </div>
-        <Badge tone="accent" variant="subtle" size="md">
-          v{context.version}
-        </Badge>
       </div>
 
       <SettingsGroup title="This drive">
@@ -112,7 +109,7 @@ export function AboutSection() {
             </li>
           ))}
         </ul>
-        <p className="px-3.5 py-2.5 text-fg-muted text-xs leading-relaxed">
+        <p className="px-3.5 py-2.5 text-fg-muted text-xs leading-4.5">
           Nothing is written to the registry or to your user folders, and drive letters are never
           saved, so the drive works the same on the next PC.
         </p>
@@ -131,7 +128,7 @@ export function AboutSection() {
               <Icon name="codicon:info" size={14} className="mt-0.5 shrink-0 text-warning-fg" />
               <div className="flex flex-col gap-0.5">
                 <span className="font-medium text-fg-strong text-sm">{title}</span>
-                <span className="text-fg-secondary text-xs leading-relaxed">{detail}</span>
+                <span className="text-fg-secondary text-xs leading-4.5">{detail}</span>
               </div>
             </div>
           ))}

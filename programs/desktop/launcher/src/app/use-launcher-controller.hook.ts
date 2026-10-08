@@ -1,6 +1,6 @@
 import { useToast } from '@genslate/design-system';
 import { isCommandError } from '@genslate/tauri-bridge';
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from 'react';
 
 import { optionId } from '../features/apps/app-row.component';
 import {
@@ -83,7 +83,7 @@ export function useLauncherController() {
 
   if (view.kind === 'tool' && shownTool !== view.id) setShownTool(view.id);
 
-  const focusSearch = () => requestAnimationFrame(() => inputRef.current?.focus());
+  const focusSearch = () => focusSoon(inputRef);
 
   function setView(next: View) {
     setViewState(next);
@@ -100,7 +100,7 @@ export function useLauncherController() {
       setSection('appearance');
       setViewState({ kind: 'tool', id: 'settings' });
     } else setViewState(showView === 'help' ? { kind: 'help' } : APPS);
-    focusSearch();
+    focusSoon(inputRef);
   }, [showCount, showView]);
 
   // Widen the shell's hit area at once; shrink it (and unmount the tool) after the collapse.
@@ -123,7 +123,7 @@ export function useLauncherController() {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
       setViewState(APPS);
-      focusSearch();
+      focusSoon(inputRef);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -369,6 +369,11 @@ function openContextMenu(rowId: string, event: KeyboardEvent) {
       clientY: rect.top + rect.height / 2,
     }),
   );
+}
+
+/** Focuses the search box after the next paint (once the view it lives in is shown). */
+function focusSoon(input: RefObject<HTMLInputElement | null>): void {
+  requestAnimationFrame(() => input.current?.focus());
 }
 
 function reportError(error: unknown) {

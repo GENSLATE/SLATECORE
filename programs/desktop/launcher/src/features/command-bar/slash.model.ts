@@ -7,6 +7,16 @@ import { fuzzyMatch } from '@genslate/design-system';
 
 import type { ActionSpec, AppEntry, ParamSpec } from '../../ipc/launcher.types';
 import { searchApps } from '../apps/catalog.model';
+import { SETTINGS_SECTIONS } from '../settings/settings.model';
+
+/** What a choice value picks, in words (`/theme dark` → Polar Night), by `<action>.<param>`. */
+const CHOICE_DETAIL: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  'theme.mode': { system: 'Follow Windows', dark: 'Polar Night', light: 'Snow Storm' },
+  'size.preset': { s: 'Small', m: 'Medium', l: 'Large' },
+  'settings.section': Object.fromEntries(
+    SETTINGS_SECTIONS.map((section) => [section.id, section.label]),
+  ),
+};
 
 export type SlashSuggestion =
   /** `/op…` → the `open` command. Choosing it completes `/open `. */
@@ -87,7 +97,7 @@ function valueSuggestions(
           param,
           value,
           label: value,
-          detail: undefined,
+          detail: CHOICE_DETAIL[`${action.id}.${param.name}`]?.[value],
           app: undefined,
         }));
     case 'app': {

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 
 import { app } from '../fixtures';
-import { renderTrayMenu } from '../launcher.harness';
+import { renderTrayMenu, settle } from '../launcher.harness';
 
 const APPS = [
   app('genslate/terminal', { favorite: true }),
@@ -60,6 +60,8 @@ describe('TrayMenu', () => {
     );
     fireEvent.click(screen.getByRole('menuitem', { name: 'Terminal' }));
     expect(backend.launch).toHaveBeenCalledWith('genslate/terminal');
+    // The launch refreshes the catalog (Recent changes): let that land before the test ends.
+    await settle();
   });
 
   test('Appearance marks the current theme and writes a new one', async () => {

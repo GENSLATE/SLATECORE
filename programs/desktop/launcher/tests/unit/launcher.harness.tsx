@@ -12,7 +12,7 @@ import { AppProviders } from '../../src/app/app.providers';
 import { type Boot, LauncherProvider } from '../../src/app/launcher.provider';
 import { TrayMenu } from '../../src/features/tray-menu/tray-menu.component';
 import type { LauncherBackend } from '../../src/ipc/launcher.client';
-import { createMockBackend, type MockOptions } from '../../src/ipc/launcher.mock';
+import { createMockBackend, type MockBackend, type MockOptions } from '../../src/ipc/launcher.mock';
 import type { AppList } from '../../src/ipc/launcher.types';
 
 /** The backend with each method replaced by a spy that calls the real mock. */
@@ -41,7 +41,11 @@ async function boot(options: HarnessOptions) {
     backend.vaultStatus(),
   ]);
   const loaded: Boot = { backend, context, list: listOverride ?? list, vault };
-  return { loaded, backend, emit: raw.emit };
+  // The shell's events update React state: deliver them inside `act`, as a user event would be.
+  const emit: MockBackend['emit'] = (event, payload) => {
+    act(() => raw.emit(event, payload));
+  };
+  return { loaded, backend, emit };
 }
 
 /** Lets pending promises, effects and zero-delay timers settle inside `act`. */

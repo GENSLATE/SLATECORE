@@ -62,7 +62,10 @@ export function SourceTabs({ tabs, value, onChange }: SourceTabsProps) {
                 value={tab.source}
                 icon={SOURCE_ICON[tab.source]}
                 aria-label={`${label}, ${tab.count} apps`}
-                className={cn('min-w-0 gap-1.5', active ? 'flex-auto' : 'flex-none px-2.5')}
+                className={cn(
+                  'min-w-0 gap-1.5',
+                  active ? 'flex-auto' : 'w-12 flex-none justify-center px-0',
+                )}
               >
                 {active ? <span className="truncate">{label}</span> : null}
                 <span

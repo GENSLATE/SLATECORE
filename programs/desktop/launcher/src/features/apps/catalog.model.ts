@@ -116,22 +116,22 @@ export function searchApps(apps: readonly AppEntry[], query: string): AppEntry[]
     .map((hit) => hit.app);
 }
 
-/** Below this length a query must appear as-is (fuzzy "ex" would match half the list). */
+/** Below this length a name must contain the query as-is (fuzzy "ex" would match half the list). */
 const FUZZY_MIN_LENGTH = 3;
 
 function score(app: AppEntry, query: string): number | null {
-  const strict = query.length < FUZZY_MIN_LENGTH;
-  const match = (text: string) => {
-    if (strict && !text.toLowerCase().includes(query.toLowerCase())) return null;
-    return fuzzyMatch(query, text);
-  };
-  const name = match(app.name);
+  const contiguous = (text: string) => text.toLowerCase().includes(query.toLowerCase());
+  // A name may match fuzzily ("mzf" → Mozilla Firefox) once the query is long enough; every
+  // other field only as written, or "fire" would find "File archiver" and
+  // "LibreOfficePortable".
+  const name =
+    query.length < FUZZY_MIN_LENGTH && !contiguous(app.name) ? null : fuzzyMatch(query, app.name);
   // Launchable apps first; a name match beats any other field.
   const bonus = isLaunchable(app) ? 5000 : 0;
   if (name !== null) return name.score + 3000 + bonus;
   const key = app.id.slice(app.id.indexOf('/') + 1);
   const other = [key, ...app.keywords, app.category, app.description]
-    .map((field) => match(field))
+    .map((field) => (contiguous(field) ? fuzzyMatch(query, field) : null))
     .filter((match) => match !== null)
     .map((match) => match.score);
   return other.length === 0 ? null : Math.max(...other) + bonus;
