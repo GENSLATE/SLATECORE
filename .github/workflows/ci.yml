@@ -1,0 +1,109 @@
+name: ci
+
+# check, test and package on Windows, the only platform SLATECORE ships. release.yml reuses this
+# workflow. cargo-deny is not here: security.yml runs it on a schedule so a new advisory never
+# fails an unrelated pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  # bun install must not install the git hooks on the runner.
+  LEFTHOOK: "0"
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: setup
+        uses: ./.github/actions/setup-env
+        with:
+          cache-scope: check
+          tools: cargo-machete
+
+      - name: TypeScript and repository gates
+        run: bun run check --ts
+
+      # The Rust half of `bun run check` minus //#rust:deny (see the header). Rust lint stays on
+      # Windows: it is the only target.
+      - name: Rust gates
+        run: bun x --no-install turbo run //#rust:fmt //#rust:lint //#rust:machete --continue
+
+      - name: Save turbo cache
+        if: github.ref == 'refs/heads/main' && !cancelled()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: ${{ steps.setup.outputs.turbo-cache-key }}
+
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: setup
+        uses: ./.github/actions/setup-env
+        with:
+          cache-scope: test
+
+      - name: Tests
+        run: bun run test
+
+      - name: Save turbo cache
+        if: github.ref == 'refs/heads/main' && !cancelled()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: ${{ steps.setup.outputs.turbo-cache-key }}
+
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: setup
+        uses: ./.github/actions/setup-env
+        with:
+          cache-scope: package
+
+      - name: Portable zip
+        run: bun run package
+
+      - name: Upload the portable zips
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: slatecore-launcher-portable
+          path: release/*.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Save turbo cache
+        if: github.ref == 'refs/heads/main' && !cancelled()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: ${{ steps.setup.outputs.turbo-cache-key }}

@@ -1,0 +1,72 @@
+# cspell:ignore Swatinem
+name: Set up SLATECORE
+description: >-
+  bun at the version pinned in package.json, the Rust toolchain from rust-toolchain.toml, the
+  cargo and turbo caches, then bun install --frozen-lockfile. Windows only. Check out the
+  repository first.
+
+inputs:
+  rust:
+    description: Install the Rust toolchain and the cargo cache. Use "false" for jobs that never run cargo.
+    default: "true"
+  tools:
+    description: Space separated cargo tools to install with taiki-e/install-action, for example cargo-machete.
+    default: ""
+  cache-scope:
+    description: Keeps one job's turbo cache apart from the others (turbo-<os>-<scope>-<sha>).
+    default: shared
+
+outputs:
+  turbo-cache-key:
+    description: Key to save .turbo/cache under. Jobs save it from main only; this action only restores.
+    value: ${{ steps.keys.outputs.turbo }}
+
+runs:
+  using: composite
+  steps:
+    # Reads the bun version from "packageManager" in package.json.
+    - name: bun
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version-file: package.json
+
+    - name: bun install
+      shell: pwsh
+      run: bun install --frozen-lockfile
+
+    # rustup (1.28+) with no arguments installs what rust-toolchain.toml asks for. The popular
+    # toolchain actions do not read that file, so none is used.
+    - name: Rust toolchain from rust-toolchain.toml
+      if: inputs.rust == 'true'
+      shell: pwsh
+      run: rustup toolchain install
+
+    # Restores everywhere; the job that owns the key saves from main only. Pull requests read
+    # the caches main saved.
+    - name: Cargo cache
+      if: inputs.rust == 'true'
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    - name: Cargo tools
+      if: inputs.tools != ''
+      uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      with:
+        tool: ${{ inputs.tools }}
+
+    - name: Turbo cache key
+      id: keys
+      shell: pwsh
+      env:
+        SCOPE: ${{ inputs.cache-scope }}
+      run: echo "turbo=turbo-$($env:RUNNER_OS)-$($env:SCOPE)-$($env:GITHUB_SHA)" >> $env:GITHUB_OUTPUT
+
+    - name: Restore turbo cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .turbo/cache
+        key: ${{ steps.keys.outputs.turbo }}
+        restore-keys: turbo-${{ runner.os }}-${{ inputs.cache-scope }}-
