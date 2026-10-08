@@ -12,12 +12,19 @@ const REQUIRED_DENY: readonly string[] = [
     `PowerShell(${tool} *)`,
   ]),
   'Bash(git * --no-verify*)',
-  'Bash(git commit -n*)',
-  'Bash(*LEFTHOOK=0*)',
+  ...['Bash', 'PowerShell'].flatMap((shell) => [
+    `${shell}(git * --no-verify*)`,
+    `${shell}(git commit -n*)`,
+    `${shell}(git commit * -n*)`,
+    `${shell}(*LEFTHOOK=0*)`,
+  ]),
   'Read(**/.env)',
   'Read(**/.genslate/**)',
   'Read(**/storage/vault/**)',
 ];
+
+/** Hook scripts settings.json must register (a hook nobody registers never runs). */
+const REQUIRED_HOOKS = ['guard-generated', 'format-on-edit', 'session-start'];
 
 /** An allow rule that approves every command: `*`, `Bash`, `Bash(*)`, `PowerShell(*)`. */
 const ALLOWS_EVERYTHING = /^(?:\*|(?:Bash|PowerShell)(?:\(\*+\))?)$/;
@@ -76,12 +83,21 @@ export async function checkSettings(ctx: Context): Promise<void> {
     fail(ctx, 'permissions.defaultMode must not be bypassPermissions');
   }
 
+  const registered: string[] = [];
   for (const [event, entries] of Object.entries(isObject(hooks) ? hooks : {})) {
     for (const [index, entry] of (Array.isArray(entries) ? entries : []).entries()) {
       const handlers = isObject(entry) && Array.isArray(entry['hooks']) ? entry['hooks'] : [];
       for (const [position, handler] of handlers.entries()) {
         await checkHandler(ctx, `hooks.${event}[${index}].hooks[${position}]`, handler);
+        const args = isObject(handler) ? handler['args'] : undefined;
+        if (Array.isArray(args)) registered.push(String(args[0]));
       }
+    }
+  }
+  for (const name of REQUIRED_HOOKS) {
+    const script = `.claude/hooks/${name}.hook.ts`;
+    if (!registered.some((path) => path.endsWith(`/${script}`))) {
+      fail(ctx, `hooks must register ${script} (it never runs otherwise)`);
     }
   }
 }

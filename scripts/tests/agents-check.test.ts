@@ -499,6 +499,24 @@ describe('settings and hooks', () => {
     expect(about(await checkAgents(gone), 'guard-generated.hook.ts')).not.toEqual([]);
   });
 
+  test('the_three_hook_scripts_must_be_registered', async () => {
+    // Unregistering a hook in settings.json would otherwise pass: only registered hooks are checked.
+    for (const [event, script] of [
+      ['PreToolUse', 'guard-generated'],
+      ['PostToolUse', 'format-on-edit'],
+      ['SessionStart', 'session-start'],
+    ] as const) {
+      const root = await fixture();
+      const file = join(root, '.claude/settings.json');
+      const settings = JSON.parse(await readFile(file, 'utf8')) as {
+        hooks: Record<string, unknown>;
+      };
+      delete settings.hooks[event];
+      await writeFile(file, JSON.stringify(settings, null, 2));
+      expect(about(await checkAgents(root), 'settings.json', `${script}.hook.ts`)).not.toEqual([]);
+    }
+  });
+
   test('settings_pin_powershell_tool_off_and_deny_npm_variants', async () => {
     const settings = JSON.parse(await readText('.claude/settings.json')) as {
       attribution: { commit: string; pr: string; sessionUrl: boolean };
@@ -540,7 +558,12 @@ describe('settings and hooks', () => {
     const required = [
       'Bash(git * --no-verify*)',
       'Bash(git commit -n*)',
+      'Bash(git commit * -n*)',
       'Bash(*LEFTHOOK=0*)',
+      'PowerShell(git * --no-verify*)',
+      'PowerShell(git commit -n*)',
+      'PowerShell(git commit * -n*)',
+      'PowerShell(*LEFTHOOK=0*)',
       'Read(**/.env)',
       'Read(**/.genslate/**)',
       'Read(**/storage/vault/**)',
@@ -710,6 +733,21 @@ describe('hook scripts', () => {
     ]) {
       expect(runHook('guard-generated.hook.ts', edit(path)).code).toBe(2);
     }
+  });
+
+  test('guard_generated_leaves_files_outside_the_project_alone', async () => {
+    // The `**/` globs would otherwise call a foreign Cargo.lock or vault folder "generated".
+    const outside = await mkdtemp(join(tmpdir(), 'slatecore-guard-'));
+    scratch.push(outside);
+    for (const file of [
+      join(outside, 'Cargo.lock'),
+      join(outside, 'app/storage/vault/a.gvf'),
+      '../Cargo.lock',
+    ]) {
+      expect(runHook('guard-generated.hook.ts', edit(file)).code).toBe(0);
+    }
+    // Inside the project the same names are still blocked.
+    expect(runHook('guard-generated.hook.ts', edit(join(ROOT, 'Cargo.lock'))).code).toBe(2);
   });
 
   test('guard_generated_lets_source_files_through', () => {

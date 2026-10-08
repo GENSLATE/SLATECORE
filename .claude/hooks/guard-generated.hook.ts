@@ -4,7 +4,7 @@
  * list is `scripts/lib/generated-paths.ts`, the same one `.gitattributes` and CI follow.
  */
 import { GENERATED_GLOBS } from '../../scripts/lib/generated-paths';
-import { block, editedFile, readInput, run } from './hook.shared';
+import { block, editedFile, outsideProject, readInput, run } from './hook.shared';
 
 /** Paths that are not generated but still off limits, with the reason shown to Claude. */
 const OFF_LIMITS: readonly { readonly glob: string; readonly why: string }[] = [
@@ -56,7 +56,8 @@ export function protectedReason(relPath: string): string | undefined {
 if (import.meta.main) {
   await run(async () => {
     const file = editedFile(await readInput());
-    if (file === undefined) return;
+    // The `**/` globs would call a foreign Cargo.lock or vault folder "generated"; not our file.
+    if (file === undefined || outsideProject(file)) return;
     const reason = protectedReason(file);
     if (reason !== undefined) block(`Blocked: ${file} is ${reason}.`);
   });
