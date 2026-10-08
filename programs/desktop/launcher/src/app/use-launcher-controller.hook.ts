@@ -1,4 +1,4 @@
-import { useToast } from '@genslate/design-system';
+import { useReducedMotion, useToast } from '@genslate/design-system';
 import { isCommandError } from '@genslate/tauri-bridge';
 import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from 'react';
 
@@ -17,11 +17,18 @@ import {
   runsOnChoose,
   type SlashSuggestion,
 } from '../features/command-bar/slash.model';
-import { isSettingsSection, type SettingsSection } from '../features/settings/settings.model';
+import type { SettingsSection } from '../features/settings/settings.model';
 import type { ToolId } from '../features/tools/tools.model';
 import { isVaultError } from '../ipc/launcher.parse';
-import type { ActionSpec, AppEntry, Source, StatusMode, ThemeSetting } from '../ipc/launcher.types';
+import type { ActionSpec, AppEntry, Source, StatusMode } from '../ipc/launcher.types';
 import { useLauncher } from './launcher.context';
+import {
+  type CommandHost,
+  type CommandId,
+  type CommandParams,
+  runCommand,
+} from './launcher-commands.model';
+import { collapseDelayMs } from './motion.util';
 
 /** What the main panel shows. Only a tool widens the frame (`view.kind === 'tool'`). */
 export type View =
@@ -32,15 +39,7 @@ export type View =
   | { readonly kind: 'args'; readonly id: string };
 
 const APPS: View = { kind: 'apps' };
-/** Matches `--gs-duration-slow`: the frame finishes shrinking before the hit area does. */
-export const COLLAPSE_MS = 360;
 const LAUNCH_POP_MS = 420;
-
-const THEME_VALUES: Readonly<Record<string, ThemeSetting>> = {
-  dark: 'polar-night',
-  light: 'snow-storm',
-  system: 'system',
-};
 
 /** Where an app of each source lives on the drive. */
 export const SOURCE_FOLDER: Readonly<Record<Source, string>> = {
@@ -51,8 +50,9 @@ export const SOURCE_FOLDER: Readonly<Record<Source, string>> = {
 
 /** All launcher UI state and behaviour; components stay presentational. */
 export function useLauncherController() {
-  const { backend, context, settings, list, pinned, showCount, showView } = useLauncher();
+  const { backend, context, settings, list, pinned, stage, showCount, showView } = useLauncher();
   const toast = useToast();
+  const reducedMotion = useReducedMotion();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [view, setViewState] = useState<View>(APPS);
@@ -103,7 +103,18 @@ export function useLauncherController() {
     focusSoon(inputRef);
   }, [showCount, showView]);
 
-  // Widen the shell's hit area at once; shrink it (and unmount the tool) after the collapse.
+  // Every hide: back to the apps with an empty search, so the next show starts clean and no
+  // tool (the vault form with a half-typed password, say) stays mounted while hidden.
+  useEffect(() => {
+    if (stage !== 'closed') return;
+    setQuery('');
+    setActiveIndex(0);
+    setSlashHint(undefined);
+    setViewState(APPS);
+  }, [stage]);
+
+  // Widen the shell's hit area at once; shrink it (and unmount the tool) once the frame has
+  // finished shrinking (`--gs-duration-slow`, nothing to wait for under reduced motion).
   useEffect(() => {
     if (expanded) {
       backend.setExpanded(true).catch(reportError);
@@ -112,9 +123,9 @@ export function useLauncherController() {
     const timer = setTimeout(() => {
       setShownTool(undefined);
       backend.setExpanded(false).catch(reportError);
-    }, COLLAPSE_MS);
+    }, collapseDelayMs(reducedMotion));
     return () => clearTimeout(timer);
-  }, [backend, expanded]);
+  }, [backend, expanded, reducedMotion]);
 
   // Esc anywhere leaves a tool or sub-view (the search box handles its own Esc first).
   useEffect(() => {
@@ -192,8 +203,28 @@ export function useLauncherController() {
     }, notify);
   }
 
+  // The launcher window's side of the shared command registry (the tray has its own host).
+  const commands: CommandHost = {
+    backend,
+    apps: list.apps,
+    pinned,
+    launch: (app) => launch(app),
+    show: (target) => {
+      if (target.kind === 'tool') openTool(target.id, target.section);
+      else if (target.kind === 'help') setViewState({ kind: 'help' });
+      else setView(APPS);
+    },
+    inform: (message, tone) => toast.add({ title: message, type: tone }),
+    fail: notify,
+  };
+
+  /** Runs a registry command from this window (slash bar, hotkeys, menus, rail). */
+  function run(id: CommandId, params?: CommandParams) {
+    runCommand(commands, id, params);
+  }
+
   function togglePin() {
-    backend.setPinned(!pinned).catch(notify);
+    run('pin');
   }
 
   function changeTab(source: Source) {
@@ -207,57 +238,14 @@ export function useLauncherController() {
   }
 
   function rescan() {
-    backend.rescan().then(() => toast.add({ title: 'Apps rescanned', type: 'success' }), notify);
+    run('rescan');
   }
 
-  function execute(action: ActionSpec, params: Readonly<Record<string, string>>) {
+  /** Runs a slash command: the shared registry, or the shell for ids it does not know. */
+  function execute(action: ActionSpec, params: CommandParams) {
     setQuery('');
     setSlashHint(undefined);
-    switch (action.id) {
-      case 'open': {
-        const wanted = params['app'] ?? '';
-        const app =
-          list.apps.find((entry) => entry.id === wanted) ?? searchApps(list.apps, wanted)[0];
-        if (app === undefined) toast.add({ title: `No app matches “${wanted}”`, type: 'info' });
-        else launch(app);
-        return;
-      }
-      case 'theme': {
-        const theme = THEME_VALUES[params['mode'] ?? ''];
-        if (theme !== undefined) backend.setSetting('theme', theme).catch(notify);
-        return;
-      }
-      case 'size': {
-        const size = params['preset'];
-        if (size !== undefined) backend.setSetting('size', size).catch(notify);
-        return;
-      }
-      case 'pin':
-        togglePin();
-        return;
-      case 'settings': {
-        const wanted = params['section'];
-        openTool('settings', isSettingsSection(wanted) ? wanted : 'appearance');
-        return;
-      }
-      case 'vault':
-        openTool('settings', 'vault');
-        return;
-      case 'rescan':
-        rescan();
-        return;
-      case 'help':
-        setViewState({ kind: 'help' });
-        return;
-      case 'ask':
-        openTool('ai');
-        return;
-      default:
-        backend.runAction(action.id, params).then((outcome) => {
-          if (outcome.kind === 'done' && outcome.message !== null)
-            toast.add({ title: outcome.message, type: 'success' });
-        }, notify);
-    }
+    runCommand(commands, action.id, params);
   }
 
   function choose(suggestion: SlashSuggestion | undefined) {
@@ -349,6 +337,7 @@ export function useLauncherController() {
     toggleFavorite,
     togglePin,
     rescan,
+    run,
     choose,
     onKeyDown,
     notify,

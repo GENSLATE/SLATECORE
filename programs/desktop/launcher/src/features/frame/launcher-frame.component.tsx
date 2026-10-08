@@ -52,7 +52,7 @@ export function LauncherFrame({
         <div
           data-slot="launcher-frame"
           className={cn(
-            'launcher-frame relative grid overflow-hidden rounded-(--launcher-radius) border border-border bg-surface text-fg shadow-popover',
+            'launcher-frame relative grid overflow-hidden rounded-(--launcher-radius) border border-border bg-surface text-fg',
             'grid-cols-[var(--spacing-launcher-rail)_minmax(0,1fr)]',
             'grid-rows-[var(--spacing-launcher-titlebar)_minmax(0,1fr)_var(--spacing-launcher-band)_var(--spacing-launcher-status)]',
           )}

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 
 import { app } from '../fixtures';
-import { renderTrayMenu, settle } from '../launcher.harness';
+import { renderTrayMenu, type SpiedBackend, settle } from '../launcher.harness';
 
 const APPS = [
   app('genslate/terminal', { favorite: true }),
@@ -97,5 +97,46 @@ describe('TrayMenu', () => {
     await openSubmenu('Folders');
     fireEvent.click(screen.getByRole('menuitem', { name: 'Documents' }));
     expect(backend.openFolder).toHaveBeenCalledWith('documents');
+  });
+
+  test('Show, the launcher files, Rescan and Quit run the shared commands', async () => {
+    const show = await setup();
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Show Launcher/ }));
+    expect(show.backend.show).toHaveBeenCalledWith('apps');
+    show.unmount();
+
+    for (const [row, call] of [
+      [
+        'Edit settings.toml',
+        (b: SpiedBackend) => b.openConfigFile.mock.calls[0]?.[0] === 'settings',
+      ],
+      [
+        'Edit keybindings.toml',
+        (b: SpiedBackend) => b.openConfigFile.mock.calls[0]?.[0] === 'keybindings',
+      ],
+      ['Open Logs', (b: SpiedBackend) => b.openConfigFile.mock.calls[0]?.[0] === 'logs'],
+      ['Rescan Apps', (b: SpiedBackend) => b.rescan.mock.calls.length === 1],
+    ] as const) {
+      const view = await setup();
+      await openSubmenu('Settings');
+      fireEvent.click(screen.getByRole('menuitem', { name: row }));
+      expect(call(view.backend)).toBe(true);
+      await settle();
+      view.unmount();
+    }
+
+    const quit = await setup();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Quit SLATECORE LAUNCHER' }));
+    expect(quit.backend.quit).toHaveBeenCalledTimes(1);
+  });
+
+  test('tray rows hold no command logic of their own: they go through the registry', async () => {
+    const dir = new URL('../../../src/features/tray-menu/', import.meta.url);
+    for (const name of ['tray-menu.component.tsx', 'tray-menu-submenus.component.tsx']) {
+      const source = await Bun.file(new URL(name, dir)).text();
+      expect(source, name).not.toMatch(
+        /backend\.(launch|setPinned|setSetting|show|rescan|openFolder|openConfigFile|quit)\(/,
+      );
+    }
   });
 });

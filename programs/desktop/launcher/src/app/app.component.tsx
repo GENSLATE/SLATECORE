@@ -1,6 +1,6 @@
 import { AppContextMenu } from '../features/apps/app-context-menu.component';
 import { AppDetails, RunWithArgs } from '../features/apps/app-details.component';
-import { AppList } from '../features/apps/app-list.component';
+import { AppList, appListboxIds } from '../features/apps/app-list.component';
 import { optionId } from '../features/apps/app-row.component';
 import { SourceTabs } from '../features/apps/source-tabs.component';
 import { CommandBar } from '../features/command-bar/command-bar.component';
@@ -48,7 +48,16 @@ export function App() {
   const detailsApp =
     c.view.kind === 'details' || c.view.kind === 'args' ? find(c.view.id) : undefined;
   const back = () => c.setView({ kind: 'apps' });
-  const openSettingsFile = () => backend.openConfigFile('settings').catch(c.notify);
+  // What the search box drives: the suggestions while a command is typed, else the app list
+  // when it is on screen (not under a tool or a sub-view, not an empty state).
+  const controls = c.slash.active
+    ? c.slash.suggestions.length > 0
+      ? SLASH_ID
+      : undefined
+    : subview || c.expanded
+      ? undefined
+      : appListboxIds(LISTBOX_ID, c.groups, c.results, c.collapsed);
+  const openSettingsFile = () => c.run('config', { file: 'settings' });
 
   const appsPane = (
     <div
@@ -136,12 +145,12 @@ export function App() {
       settingsOpen={openTool === 'settings'}
       settingsShortcut={keys.toggleTools}
       onToggleSettings={() => c.toggleTool('settings')}
-      onShowHelp={() => c.setView({ kind: 'help' })}
+      onShowHelp={() => c.run('help')}
       onHide={() => backend.hide().catch(c.notify)}
       statusMode={c.statusMode}
       onStatusModeChange={c.changeStatusMode}
       onOpenSettingsFile={openSettingsFile}
-      onOpenFolder={(folder) => backend.openFolder(folder).catch(c.notify)}
+      onOpenFolder={(folder) => c.run('folder', { folder })}
       onOpenChange={setPopupOpen}
       onError={c.notify}
     >
@@ -162,8 +171,8 @@ export function App() {
             profile={context.profile}
             suiteName={context.suiteName}
             vault={vault.state}
-            onOpenFolder={(folder) => backend.openFolder(folder).catch(c.notify)}
-            onOpenVault={() => c.openTool('settings', 'vault')}
+            onOpenFolder={(folder) => c.run('folder', { folder })}
+            onOpenVault={() => c.run('vault')}
           />
         }
         railFooter={
@@ -185,8 +194,8 @@ export function App() {
             value={c.query}
             onChange={c.changeQuery}
             onKeyDown={c.onKeyDown}
-            controls={c.slash.active ? SLASH_ID : LISTBOX_ID}
-            activeDescendant={subview || c.expanded ? undefined : activeDescendant}
+            controls={controls}
+            activeDescendant={activeDescendant}
             focusShortcut={keys.focusSearch}
             aiOpen={openTool === 'ai'}
             onAsk={() => c.toggleTool('ai')}

@@ -8,12 +8,21 @@ import {
   PasswordField,
   useToast,
 } from '@genslate/design-system';
-import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import {
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { useLauncher } from '../../app/launcher.context';
 import { isVaultError } from '../../ipc/launcher.parse';
 import { PREVIEW_VAULT_PASSWORD } from '../../ipc/launcher.preview';
 import type { EntryDto, VaultStatusDto } from '../../ipc/launcher.types';
+import { VAULT_PASSWORD_MAX_BYTES, vaultPasswordProblem } from '../../ipc/vault-password.util';
 import { formatBytes } from '../status/format.util';
 import { SettingsGroup } from './settings-row.component';
 import { errorMessage, useReport } from './use-report.hook';
@@ -27,10 +36,47 @@ export function vaultMessage(error: unknown): string {
     case 'THROTTLED':
       return `Too many wrong passwords. Try again in ${Math.ceil((error.retryAfterMs ?? 30_000) / 1000)} s.`;
     case 'PASSWORD_REJECTED':
-      return 'Use 8 to 1024 characters.';
+      return 'Use at least 8 characters and no more than 1024 bytes.';
     default:
       return error.message;
   }
+}
+
+/** What the password rule says about a new password, in words (`undefined`: it is fine). */
+function newPasswordMessage(password: string): string | undefined {
+  switch (vaultPasswordProblem(password)) {
+    case 'too-short':
+      return 'Use at least 8 characters.';
+    case 'too-long':
+      return `Too long: use at most ${VAULT_PASSWORD_MAX_BYTES} bytes.`;
+    case null:
+      return undefined;
+  }
+}
+
+/** A form error and the field it belongs under. */
+interface FieldError<Field extends string> {
+  readonly field: Field;
+  readonly message: string;
+}
+
+type PasswordRef = RefObject<HTMLInputElement | null>;
+
+/** The secret in a password field, read straight from the input (never from React state). */
+function readSecret(ref: PasswordRef): string {
+  return ref.current?.value ?? '';
+}
+
+/** Empties a password field. */
+function clearSecret(ref: PasswordRef): void {
+  if (ref.current !== null) ref.current.value = '';
+}
+
+/** Reads a password field and empties it at once: the call that sends it is the only copy. */
+function takeSecret(ref: PasswordRef): string {
+  const secret = readSecret(ref);
+  clearSecret(ref);
+  return secret;
 }
 
 const NO_RECOVERY =
@@ -38,8 +84,9 @@ const NO_RECOVERY =
 
 /**
  * The encrypted vault (`storage/vault`): set a password, unlock, lock, change the password and
- * open files. Passwords live only in the field while typed and are cleared the moment they are
- * sent; they never reach a store, a URL, a log or an error message.
+ * open files. Password fields are uncontrolled: the secret lives only in the `<input>` while it
+ * is typed, is read from it on submit and cleared straight away, and never reaches React state,
+ * a store, a URL, a log or an error message.
  */
 export function VaultSection() {
   const { vault } = useLauncher();
@@ -104,53 +151,51 @@ function FormFooter({ children, hint }: { children: ReactNode; hint?: ReactNode 
 
 function CreateVault() {
   const { backend } = useLauncher();
-  const [password, setPassword] = useState('');
-  const [repeat, setRepeat] = useState('');
-  const [error, setError] = useState<string | undefined>();
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const repeatRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<FieldError<'password' | 'repeat'> | undefined>();
   const [busy, setBusy] = useState(false);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if ([...password.normalize('NFKC')].length < 8) {
-      setError('Use at least 8 characters.');
+    const problem = newPasswordMessage(readSecret(passwordRef));
+    if (problem !== undefined) {
+      setError({ field: 'password', message: problem });
       return;
     }
-    if (password !== repeat) {
-      setError('The passwords do not match.');
-      setRepeat('');
+    if (readSecret(passwordRef) !== readSecret(repeatRef)) {
+      clearSecret(repeatRef);
+      setError({ field: 'repeat', message: 'The passwords do not match.' });
       return;
     }
-    const secret = password;
-    setPassword('');
-    setRepeat('');
+    clearSecret(repeatRef);
     setError(undefined);
     setBusy(true);
     backend
-      .vaultCreate(secret)
-      .catch((reason: unknown) => setError(vaultMessage(reason)))
+      .vaultCreate(takeSecret(passwordRef))
+      .catch((reason: unknown) => setError({ field: 'password', message: vaultMessage(reason) }))
       .finally(() => setBusy(false));
+  };
+
+  const clearError = (field: 'password' | 'repeat') => {
+    if (error?.field === field) setError(undefined);
   };
 
   return (
     <SettingsGroup title="Set a vault password">
       <form className="flex flex-col gap-3 p-3.5" onSubmit={submit}>
         <PasswordField
+          ref={passwordRef}
           label="New vault password"
-          description="8 to 1024 characters. A short sentence is easy to remember."
-          value={password}
-          onChange={(value) => {
-            setPassword(value);
-            setError(undefined);
-          }}
+          description="At least 8 characters. A short sentence is easy to remember."
+          error={error?.field === 'password' ? error.message : undefined}
+          onInput={() => clearError('password')}
         />
         <PasswordField
+          ref={repeatRef}
           label="Repeat the password"
-          value={repeat}
-          error={error}
-          onChange={(value) => {
-            setRepeat(value);
-            setError(undefined);
-          }}
+          error={error?.field === 'repeat' ? error.message : undefined}
+          onInput={() => clearError('repeat')}
         />
         <FormFooter hint="The vault opens as soon as it is created.">
           <Button
@@ -170,15 +215,17 @@ function CreateVault() {
 
 function UnlockVault({ status }: { status: VaultStatusDto }) {
   const { backend, context } = useLauncher();
-  const [password, setPassword] = useState('');
+  const passwordRef = useRef<HTMLInputElement>(null);
+  // Whether the field has anything in it (enables Unlock); never the password itself.
+  const [filled, setFilled] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (password === '') return;
-    const secret = password;
-    setPassword('');
+    const secret = takeSecret(passwordRef);
+    setFilled(false);
+    if (secret === '') return;
     setBusy(true);
     backend
       .vaultUnlock(secret)
@@ -194,11 +241,11 @@ function UnlockVault({ status }: { status: VaultStatusDto }) {
     <SettingsGroup title="Unlock">
       <form className="flex flex-col gap-3 p-3.5" onSubmit={submit}>
         <PasswordField
+          ref={passwordRef}
           label="Vault password"
-          value={password}
           error={error}
-          onChange={(value) => {
-            setPassword(value);
+          onInput={(event) => {
+            setFilled(event.currentTarget.value !== '');
             setError(undefined);
           }}
         />
@@ -221,7 +268,7 @@ function UnlockVault({ status }: { status: VaultStatusDto }) {
             variant="primary"
             size="sm"
             loading={busy}
-            disabled={password === ''}
+            disabled={!filled}
             leadingIcon="codicon:unlock"
           >
             Unlock
@@ -231,6 +278,12 @@ function UnlockVault({ status }: { status: VaultStatusDto }) {
     </SettingsGroup>
   );
 }
+
+/** The file list of the open folder: loading, read, or why it could not be read. */
+type Listing =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'ready'; readonly entries: readonly EntryDto[] }
+  | { readonly kind: 'failed'; readonly message: string };
 
 function parentOf(path: string): string {
   const slash = path.lastIndexOf('/');
@@ -246,19 +299,20 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
   const toast = useToast();
   const report = useReport();
   const [dir, setDir] = useState('');
-  const [entries, setEntries] = useState<readonly EntryDto[] | null>(null);
+  const [listing, setListing] = useState<Listing>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
   const [checking, setChecking] = useState(false);
 
-  const revision = `${status.entryCount ?? 0}:${status.sessionFiles}`;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` reloads the list when the vault's content changes.
+  const revision = `${status.entryCount ?? 0}:${status.sessionFiles}:${attempt}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` reloads the list when the vault's content changes (or on Try again).
   useEffect(() => {
     let current = true;
     backend.vaultList(dir).then(
-      (next) => {
-        if (current) setEntries(next);
+      (entries) => {
+        if (current) setListing({ kind: 'ready', entries });
       },
-      () => {
-        if (current) setEntries([]);
+      (reason: unknown) => {
+        if (current) setListing({ kind: 'failed', message: vaultMessage(reason) });
       },
     );
     return () => {
@@ -360,9 +414,27 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
             </Button>
           )}
         </div>
-        {entries === null ? (
+        {listing.kind === 'loading' ? (
           <div className="h-24" />
-        ) : entries.length === 0 ? (
+        ) : listing.kind === 'failed' ? (
+          <EmptyState
+            size="sm"
+            icon="codicon:error"
+            title="Could not read the vault"
+            description={listing.message}
+            actions={
+              <Button
+                size="sm"
+                variant="secondary"
+                leadingIcon="codicon:refresh"
+                onClick={() => setAttempt((count) => count + 1)}
+              >
+                Try again
+              </Button>
+            }
+            className="py-6"
+          />
+        ) : listing.entries.length === 0 ? (
           <EmptyState
             size="sm"
             icon="codicon:lock"
@@ -372,7 +444,7 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
           />
         ) : (
           <ul aria-label="Vault files" className="flex flex-col p-1">
-            {entries.map((entry, index) => (
+            {listing.entries.map((entry, index) => (
               <li
                 key={entry.path}
                 className="motion-row-in"
@@ -417,58 +489,98 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
   );
 }
 
+type PasswordSlot = 'current' | 'next' | 'repeat';
+
+/**
+ * Current, new and repeated password. Only the current password is cleared the moment it is
+ * sent: if it was wrong (or the vault is throttled) the error shows under it and the new
+ * password stays typed, so only the current one has to be entered again.
+ */
 function ChangePassword() {
   const { backend } = useLauncher();
   const toast = useToast();
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [repeat, setRepeat] = useState('');
-  const [error, setError] = useState<string | undefined>();
+  const refs: Readonly<Record<PasswordSlot, PasswordRef>> = {
+    current: useRef<HTMLInputElement>(null),
+    next: useRef<HTMLInputElement>(null),
+    repeat: useRef<HTMLInputElement>(null),
+  };
+  // Which fields have something in them (enables the button); never the passwords themselves.
+  const [filled, setFilled] = useState<Readonly<Record<PasswordSlot, boolean>>>({
+    current: false,
+    next: false,
+    repeat: false,
+  });
+  const [error, setError] = useState<FieldError<PasswordSlot> | undefined>();
   const [busy, setBusy] = useState(false);
+
+  const empty = (...slots: readonly PasswordSlot[]) => {
+    for (const slot of slots) clearSecret(refs[slot]);
+    setFilled((current) => ({
+      ...current,
+      ...Object.fromEntries(slots.map((slot) => [slot, false])),
+    }));
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (next !== repeat) {
-      setError('The new passwords do not match.');
-      setRepeat('');
+    const problem = newPasswordMessage(readSecret(refs.next));
+    if (problem !== undefined) {
+      setError({ field: 'next', message: problem });
       return;
     }
-    const secrets = { current, next };
-    setCurrent('');
-    setNext('');
-    setRepeat('');
+    if (readSecret(refs.next) !== readSecret(refs.repeat)) {
+      empty('repeat');
+      setError({ field: 'repeat', message: 'The new passwords do not match.' });
+      return;
+    }
+    const current = takeSecret(refs.current);
+    empty('current');
+    setError(undefined);
     setBusy(true);
     backend
-      .vaultChangePassword(secrets.current, secrets.next)
+      .vaultChangePassword(current, readSecret(refs.next))
       .then(
         () => {
-          setError(undefined);
+          empty('next', 'repeat');
           toast.add({ title: 'Vault password changed', type: 'success' });
         },
-        (reason: unknown) => setError(vaultMessage(reason)),
+        (reason: unknown) => {
+          const code = isVaultError(reason) ? reason.code : undefined;
+          if (code === 'WRONG_PASSWORD' || code === 'THROTTLED') {
+            setError({ field: 'current', message: vaultMessage(reason) });
+            return;
+          }
+          empty('next', 'repeat');
+          setError({ field: 'next', message: vaultMessage(reason) });
+        },
       )
       .finally(() => setBusy(false));
   };
 
+  const fieldProps = (slot: PasswordSlot) => ({
+    ref: refs[slot],
+    error: error?.field === slot ? error.message : undefined,
+    onInput: (event: FormEvent<HTMLInputElement>) => {
+      const value = event.currentTarget.value !== '';
+      setFilled((current) => ({ ...current, [slot]: value }));
+      if (error?.field === slot) setError(undefined);
+    },
+  });
+
   return (
     <SettingsGroup title="Change password">
       <form className="grid grid-cols-1 gap-3 p-3.5" onSubmit={submit}>
-        <PasswordField label="Current password" value={current} onChange={setCurrent} />
-        <div className="grid grid-cols-2 gap-3">
-          <PasswordField label="New password" value={next} onChange={setNext} />
-          <PasswordField
-            label="Repeat new password"
-            value={repeat}
-            error={error}
-            onChange={setRepeat}
-          />
+        <PasswordField label="Current password" {...fieldProps('current')} />
+        <div className="grid grid-cols-2 items-start gap-3">
+          <PasswordField label="New password" {...fieldProps('next')} />
+          <PasswordField label="Repeat new password" {...fieldProps('repeat')} />
         </div>
         <FormFooter>
           <Button
             type="submit"
             size="sm"
             loading={busy}
-            disabled={current === '' || next === '' || repeat === ''}
+            disabled={!(filled.current && filled.next && filled.repeat)}
             leadingIcon="codicon:key"
           >
             Change password

@@ -68,6 +68,23 @@ describe('mock backend', () => {
     expect((await backend.vaultCreate('aurora-borealis')).state).toBe('unlocked');
   });
 
+  test('vault passwords are 8 to 1024 bytes of UTF-8 after NFKC, like the crate', async () => {
+    const rejected = async (password: string) => {
+      const backend = createMockBackend({ vault: 'uninitialized' });
+      return backend.vaultCreate(password).then(
+        () => false,
+        (error: unknown) => isVaultError(error) && error.code === 'PASSWORD_REJECTED',
+      );
+    };
+    // Four accented letters are eight bytes; 512 of them are exactly 1024.
+    expect(await rejected('é'.repeat(4))).toBe(false);
+    expect(await rejected('é'.repeat(512))).toBe(false);
+    expect(await rejected('é'.repeat(513))).toBe(true);
+    // The ligature ﬀ is three bytes but normalises to "ff", two: nine bytes become six.
+    expect(await rejected('ﬀﬀﬀ')).toBe(true);
+    expect(await rejected('abcdefg')).toBe(true);
+  });
+
   test('vault command names match research/vault.md §8.3', () => {
     expect(Object.values(VAULT_COMMANDS)).toEqual([
       'vault_status',

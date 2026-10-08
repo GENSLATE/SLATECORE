@@ -3,19 +3,25 @@
  * `@genslate/tauri-bridge`, or an in-memory mock when the UI runs in a plain browser
  * (`bun run dev --web`) so it can be designed and screenshot anywhere.
  *
- * Vault commands carry passwords: this layer never logs their payloads.
+ * Every payload that comes back is checked by `launcher.parse.ts`, so a malformed one rejects
+ * with a `PayloadError` instead of breaking the component that awaited it. Vault commands carry
+ * passwords: this layer never logs their payloads.
  */
 import { customSchemeUrl, invokeCommand, isTauri, listenEvent } from '@genslate/tauri-bridge';
 
 import {
+  parseActionOutcome,
   parseAppList,
   parseContext,
   parseEntries,
+  parseLockReport,
   parseSettings,
   parseShowView,
   parseTelemetry,
   parseTrayMenuAnchor,
+  parseVaultOpened,
   parseVaultStatus,
+  parseVerifyReport,
   parseVolume,
 } from './launcher.parse';
 import {
@@ -135,7 +141,8 @@ const tauriBackend: LauncherBackend = {
   show: (view) => invokeCommand('window_show', { view: view ?? 'apps' }),
   hideTrayMenu: () => invokeCommand('tray_menu_hide'),
   quit: () => invokeCommand('quit'),
-  runAction: (id, params) => invokeCommand<ActionOutcome>('run_action', { id, params }),
+  runAction: async (id, params) =>
+    parseActionOutcome(await invokeCommand<unknown>('run_action', { id, params })),
   on: (event, handler) =>
     listenEvent<unknown>(EVENT_NAMES[event], (raw) => handler(EVENT_PARSERS[event](raw))),
   iconUrl: (id) => customSchemeUrl('launcher-icon', id.split('/')),
@@ -145,8 +152,10 @@ const tauriBackend: LauncherBackend = {
     parseVaultStatus(await invokeCommand<unknown>(VAULT_COMMANDS.create, { password })),
   vaultUnlock: async (password) =>
     parseVaultStatus(await invokeCommand<unknown>(VAULT_COMMANDS.unlock, { password })),
-  vaultLock: (force) =>
-    invokeCommand<LockReportDto>(VAULT_COMMANDS.lock, force === undefined ? {} : { force }),
+  vaultLock: async (force) =>
+    parseLockReport(
+      await invokeCommand<unknown>(VAULT_COMMANDS.lock, force === undefined ? {} : { force }),
+    ),
   vaultChangePassword: async (current, next) =>
     parseVaultStatus(
       await invokeCommand<unknown>(VAULT_COMMANDS.changePassword, { current, next }),
@@ -158,8 +167,10 @@ const tauriBackend: LauncherBackend = {
       await invokeCommand<unknown>(VAULT_COMMANDS.import, { sources, destDir, onConflict }),
     ),
   vaultExport: (path, destPath) => invokeCommand(VAULT_COMMANDS.export, { path, destPath }),
-  vaultOpen: (path) => invokeCommand<{ sessionPath: string }>(VAULT_COMMANDS.open, { path }),
-  vaultVerify: () => invokeCommand<VerifyReportDto>(VAULT_COMMANDS.verify, {}),
+  vaultOpen: async (path) =>
+    parseVaultOpened(await invokeCommand<unknown>(VAULT_COMMANDS.open, { path })),
+  vaultVerify: async () =>
+    parseVerifyReport(await invokeCommand<unknown>(VAULT_COMMANDS.verify, {})),
 };
 
 /** The Tauri backend inside the desktop app, the mock (with its icon set) in a browser. */

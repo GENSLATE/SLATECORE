@@ -12,17 +12,28 @@ const GROUP_ICON: Record<AppGroup['kind'], CodiconRef> = {
 
 export interface AppGroupHeaderProps {
   readonly group: AppGroup;
+  /** Id of the label text, which names the group's listbox. */
+  readonly labelId: string;
+  /** Id of the group's listbox while it is shown. */
+  readonly controls: string | undefined;
   readonly collapsed: boolean;
   readonly onToggle: () => void;
 }
 
-/** Sticky, collapsible section header inside the apps panel. */
-export function AppGroupHeader({ group, collapsed, onToggle }: AppGroupHeaderProps) {
+/** Sticky, collapsible section header above a group's listbox. */
+export function AppGroupHeader({
+  group,
+  labelId,
+  controls,
+  collapsed,
+  onToggle,
+}: AppGroupHeaderProps) {
   return (
     <button
       type="button"
       data-slot="app-group-header"
       aria-expanded={!collapsed}
+      aria-controls={controls}
       onClick={onToggle}
       className={cn(
         'sticky top-0 z-raised flex h-7 w-full cursor-interactive items-center gap-1.5 rounded-md bg-surface px-2',
@@ -39,7 +50,9 @@ export function AppGroupHeader({ group, collapsed, onToggle }: AppGroupHeaderPro
         )}
       />
       {group.kind === 'category' ? null : <Icon name={GROUP_ICON[group.kind]} size={12} />}
-      <span className="flex-1 truncate text-left">{group.label}</span>
+      <span id={labelId} className="flex-1 truncate text-left">
+        {group.label}
+      </span>
       <span className="font-medium tabular-nums">{group.apps.length}</span>
     </button>
   );

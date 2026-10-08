@@ -9,32 +9,41 @@ export interface PasswordFieldLabels {
   show?: string | undefined;
 }
 
-export interface PasswordFieldProps
-  extends Omit<
-    TextFieldProps,
-    | 'value'
-    | 'defaultValue'
-    | 'onValueChange'
-    | 'onChange'
-    | 'label'
-    | 'error'
-    | 'type'
-    | 'autoComplete'
-    | 'spellCheck'
-    | 'clearable'
-    | 'onClear'
-    | 'trailing'
-    | 'labels'
-  > {
-  /** The secret (always controlled: the field never keeps a copy of its own). */
-  value: string;
-  /** Called with the new string on every edit. */
-  onChange: (value: string) => void;
-  /** Visible label, also the input's accessible name. */
-  label: ReactNode;
-  /** Error message; marks the input invalid while set. */
-  error?: ReactNode | undefined;
-  /** Shows the show/hide toggle (default true). */
-  revealable?: boolean | undefined;
-  labels?: PasswordFieldLabels | undefined;
-}
+/**
+ * Controlled: `value` and `onChange` together. Uncontrolled: neither, and the secret stays in the
+ * `<input>` only (read it through `ref` on submit, then clear it).
+ */
+export type PasswordFieldValueProps =
+  | {
+      /** The secret, held by the caller. */
+      value: string;
+      /** Called with the new string on every edit. */
+      onChange: (value: string) => void;
+    }
+  | { value?: undefined; onChange?: undefined };
+
+export type PasswordFieldProps = Omit<
+  TextFieldProps,
+  | 'value'
+  | 'defaultValue'
+  | 'onValueChange'
+  | 'onChange'
+  | 'label'
+  | 'error'
+  | 'type'
+  | 'autoComplete'
+  | 'spellCheck'
+  | 'clearable'
+  | 'onClear'
+  | 'trailing'
+  | 'labels'
+> &
+  PasswordFieldValueProps & {
+    /** Visible label, also the input's accessible name. */
+    label: ReactNode;
+    /** Error message; marks the input invalid while set. */
+    error?: ReactNode | undefined;
+    /** Shows the show/hide toggle (default true). */
+    revealable?: boolean | undefined;
+    labels?: PasswordFieldLabels | undefined;
+  };

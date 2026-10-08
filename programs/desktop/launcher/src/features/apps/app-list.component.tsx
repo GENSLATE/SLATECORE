@@ -26,6 +26,7 @@ export interface AppListProps {
   readonly launchingId: string | undefined;
   /** Changes whenever the list should replay its entrance (tab switch, show). */
   readonly animationKey: string;
+  /** Id of the search listbox, and the prefix of each group's listbox id. */
   readonly listboxId: string;
   readonly onToggleGroup: (groupId: string) => void;
   readonly onActivate: (index: number) => void;
@@ -35,10 +36,10 @@ export interface AppListProps {
 }
 
 /**
- * The listbox of the apps panel: grouped (Favorites, Recent, categories, Unavailable) while
- * browsing, ranked across every source while searching. Keyboard focus stays in the search
- * box; the active option is scrolled into view. An empty tab gets a designed empty state that
- * says where its apps go.
+ * The apps panel's options: grouped (Favorites, Recent, categories, Unavailable) while browsing,
+ * one listbox per group, or ranked across every source in one listbox while searching. Keyboard
+ * focus stays in the search box, which points at the active option; the active option is
+ * scrolled into view. An empty tab gets a designed empty state that says where its apps go.
  */
 export function AppList({
   groups,
@@ -56,9 +57,9 @@ export function AppList({
   onToggleFavorite,
   onRescan,
 }: AppListProps) {
-  const row = (app: AppEntry, index: number, showSource: boolean) => (
+  const row = (key: string, app: AppEntry, index: number, showSource: boolean) => (
     <AppRow
-      key={`${app.id}@${index}`}
+      key={key}
       app={app}
       index={index}
       active={index === activeIndex}
@@ -108,48 +109,86 @@ export function AppList({
     );
   }
 
+  // Options are numbered across every group: the search box's arrows walk them all in order.
   let index = 0;
   return (
     <ScrollArea className="h-full" viewportClassName="px-1.5 pb-1.5" scrollShadow>
-      <div
-        key={animationKey}
-        id={listboxId}
-        role="listbox"
-        aria-label={groups === null ? 'Search results' : 'Apps'}
-        className="flex flex-col gap-px pt-1"
-      >
-        {groups === null ? (
-          <>
-            <div className="flex h-7 items-center px-2 font-semibold text-2xs text-fg-muted uppercase tracking-wider">
-              <span className="flex-1">Results</span>
-              <span className="tabular-nums">{results.length}</span>
-            </div>
-            {results.map((app) => row(app, index++, true))}
-          </>
-        ) : (
-          groups.map((group) => {
+      {groups === null ? (
+        <div key={animationKey} className="flex flex-col gap-px pt-1">
+          <div className="flex h-7 items-center px-2 font-semibold text-2xs text-fg-muted uppercase tracking-wider">
+            <span className="flex-1">Results</span>
+            <span className="tabular-nums">{results.length}</span>
+          </div>
+          <div
+            id={listboxId}
+            role="listbox"
+            aria-label="Search results"
+            className="flex flex-col gap-px"
+          >
+            {results.map((app) => row(app.id, app, index++, true))}
+          </div>
+        </div>
+      ) : (
+        // Each group is a listbox of its own, labelled by its header: the collapse buttons sit
+        // between the listboxes, never inside one (a listbox may hold options only).
+        // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls; this names the set of app listboxes.
+        <div
+          key={animationKey}
+          role="group"
+          aria-label="Apps"
+          className="flex flex-col gap-px pt-1"
+        >
+          {groups.map((group, position) => {
             const isCollapsed = collapsed.has(group.id);
+            const id = groupListboxId(listboxId, position);
             return (
-              // biome-ignore lint/a11y/useSemanticElements: option groups inside a listbox must be role="group" (WAI-ARIA); a fieldset is not allowed there.
-              <div
-                key={group.id}
-                role="group"
-                aria-label={group.label}
-                className="flex flex-col gap-px"
-              >
+              <div key={group.id} className="flex flex-col gap-px">
                 <AppGroupHeader
                   group={group}
+                  labelId={`${id}-label`}
+                  controls={isCollapsed ? undefined : id}
                   collapsed={isCollapsed}
                   onToggle={() => onToggleGroup(group.id)}
                 />
-                {isCollapsed ? null : group.apps.map((app) => row(app, index++, false))}
+                {isCollapsed ? null : (
+                  <div
+                    id={id}
+                    role="listbox"
+                    aria-labelledby={`${id}-label`}
+                    className="flex flex-col gap-px"
+                  >
+                    {group.apps.map((app) => row(`${group.id}:${app.id}`, app, index++, false))}
+                  </div>
+                )}
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </ScrollArea>
   );
+}
+
+/** DOM id of the listbox of the group at `position`. */
+function groupListboxId(listboxId: string, position: number): string {
+  return `${listboxId}-${position}`;
+}
+
+/**
+ * The ids of the listboxes `AppList` shows (space separated, for the search box's
+ * `aria-controls`), or `undefined` when it shows none (an empty state).
+ */
+export function appListboxIds(
+  listboxId: string,
+  groups: readonly AppGroup[] | null,
+  results: readonly AppEntry[],
+  collapsed: ReadonlySet<string>,
+): string | undefined {
+  if (groups === null) return results.length > 0 ? listboxId : undefined;
+  const ids = groups.flatMap((group, position) =>
+    collapsed.has(group.id) ? [] : [groupListboxId(listboxId, position)],
+  );
+  return ids.length > 0 ? ids.join(' ') : undefined;
 }
 
 /** Keeps the active option visible as the keyboard moves through the list. */

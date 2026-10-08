@@ -5,6 +5,15 @@ import type { Effect } from '../../ipc/launcher.types';
 import { AppIcon } from '../apps/app-icon.component';
 import type { SlashSuggestion } from './slash.model';
 
+/** Commands that share an effect but deserve their own glyph. */
+const ACTION_ICON: Readonly<Record<string, CodiconRef>> = {
+  settings: 'codicon:settings-gear',
+  vault: 'codicon:lock',
+  help: 'codicon:question',
+  theme: 'codicon:color-mode',
+  size: 'codicon:screen-full',
+};
+
 const EFFECT_ICON: Record<Effect, CodiconRef> = {
   ui: 'codicon:layout',
   window: 'codicon:window',
@@ -96,7 +105,11 @@ function SuggestionContent({ suggestion }: { suggestion: SlashSuggestion }) {
     const { action } = suggestion;
     return (
       <>
-        <Icon name={EFFECT_ICON[action.effect]} size={14} className="shrink-0 text-fg-muted" />
+        <Icon
+          name={ACTION_ICON[action.id] ?? EFFECT_ICON[action.effect]}
+          size={14}
+          className="shrink-0 text-fg-muted"
+        />
         <span className="shrink-0 font-medium font-mono text-fg-strong text-sm">/{action.id}</span>
         <span className="ml-auto min-w-0 truncate pl-2 text-fg-muted text-xs">
           {action.description}

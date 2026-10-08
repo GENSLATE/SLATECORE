@@ -103,7 +103,10 @@ export function AppRow({
 
       <StatusBadge app={app} />
 
+      {/* Pointer shortcuts only: an option may not contain controls, and the keyboard has
+          the favorite shortcut and the context menu for the same thing. */}
       <span
+        aria-hidden
         className={cn(
           'flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-fast ease-standard',
           'group-data-active/row:opacity-100',

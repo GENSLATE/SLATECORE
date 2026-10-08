@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { screen, waitFor, within } from '@testing-library/react';
 
-import { COLLAPSE_MS } from '../../../src/app/use-launcher-controller.hook';
+import { COLLAPSE_FALLBACK_MS as COLLAPSE_MS } from '../../../src/app/motion.util';
 import type { AppList } from '../../../src/ipc/launcher.types';
 import { renderLauncher } from '../launcher.harness';
 
@@ -31,12 +31,12 @@ describe('launcher frame', () => {
     expect(frame()).toHaveAttribute('data-expanded');
     expect(screen.getByRole('region', { name: 'Settings' })).toBeInTheDocument();
     expect(backend.setExpanded).toHaveBeenLastCalledWith(true);
-    expect(screen.queryByRole('listbox', { name: 'Apps' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Apps' })).toBeNull();
 
     await user.keyboard('{Escape}');
     expect(frame()).not.toHaveAttribute('data-expanded');
     expect(screen.queryByRole('region', { name: 'Settings' })).toBeNull();
-    expect(screen.getByRole('listbox', { name: 'Apps' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Apps' })).toBeInTheDocument();
   });
 
   test('closing_tool_collapses_after_collapse_delay', async () => {
@@ -51,6 +51,22 @@ describe('launcher frame', () => {
       timeout: COLLAPSE_MS * 4,
     });
     expect(performance.now() - closedAt).toBeGreaterThanOrEqual(COLLAPSE_MS - 20);
+  });
+
+  test('hiding the window resets it to the apps, so nothing half-typed stays behind', async () => {
+    const { emit, user } = await renderLauncher();
+    const search = screen.getByRole('combobox', { name: /Search apps/ });
+    await user.type(search, '/vault{Enter}');
+    await user.type(screen.getByLabelText('Vault password'), 'half-typed');
+    await user.type(search, '/the');
+
+    emit('willHide', undefined);
+    expect(search).toHaveValue('');
+    expect(frame()).not.toHaveAttribute('data-expanded');
+    expect(screen.queryByRole('region', { name: 'Settings' })).toBeNull();
+    // Once the frame has shrunk, the vault form (and the typed secret) is gone from the page.
+    const secretFields = () => document.querySelectorAll('input[type="password"]').length;
+    await waitFor(() => expect(secretFields()).toBe(0), { timeout: COLLAPSE_MS * 4 });
   });
 
   test('empty_catalog_shows_empty_state_per_tab', async () => {
@@ -88,7 +104,7 @@ describe('launcher frame', () => {
     expect(screen.queryByRole('tablist', { name: 'App sources' })).toBeNull();
     const heading = screen.getByRole('heading', { name: 'GENSLATE apps' });
     expect(heading.parentElement).toHaveTextContent(/GENSLATE apps\s*\d+/);
-    expect(screen.getByRole('listbox', { name: 'Apps' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Apps' })).toBeInTheDocument();
   });
 
   test('unavailable_group_is_collapsed_by_default', async () => {
@@ -117,6 +133,13 @@ describe('launcher frame', () => {
     if (!(bar instanceof HTMLElement)) throw new Error('status bar missing');
     await user.click(within(bar).getByRole('button', { name: 'Settings' }));
     expect(backend.openConfigFile).toHaveBeenCalledWith('settings');
+  });
+
+  test('the frame is flat: a 1px border and no shadow (only floating popups get one)', async () => {
+    await renderLauncher();
+    const panel = document.querySelector('[data-slot="launcher-frame"]');
+    expect(panel?.className).toMatch(/\bborder\b/);
+    expect(panel?.className).not.toMatch(/shadow/);
   });
 
   test('run_mode_badge_sits_in_the_titlebar_not_the_status_bar', async () => {

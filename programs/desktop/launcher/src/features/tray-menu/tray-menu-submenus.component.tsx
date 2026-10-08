@@ -15,9 +15,7 @@ import { useLauncher } from '../../app/launcher.context';
 import type { AppEntry, SharedFolder, SizePreset, ThemeSetting } from '../../ipc/launcher.types';
 import { AppIcon } from '../apps/app-icon.component';
 import { isLaunchable } from '../apps/catalog.model';
-
-/** Called with any failed backend call (the menu has already closed). */
-type Report = (error: unknown) => void;
+import type { TrayRun } from './use-tray-commands.hook';
 
 const THEMES: readonly { value: ThemeSetting; label: string }[] = [
   { value: 'polar-night', label: 'Polar Night' },
@@ -40,22 +38,17 @@ const FOLDERS: readonly { folder: SharedFolder; label: string; icon: CodiconRef 
   { folder: 'videos', label: 'Videos', icon: 'codicon:device-camera-video' },
 ];
 
-const isTheme = (value: unknown): value is ThemeSetting =>
-  THEMES.some((theme) => theme.value === value);
-const isSize = (value: unknown): value is SizePreset => SIZES.some((size) => size.value === value);
-
 export interface TrayAppsSubmenuProps {
   readonly label: string;
   readonly icon: CodiconRef;
   readonly apps: readonly AppEntry[];
   /** Shown (disabled) when `apps` is empty. */
   readonly empty: string;
-  readonly report: Report;
+  readonly run: TrayRun;
 }
 
 /** Recent or Favorites: one row per app with its icon; unavailable apps are disabled. */
-export function TrayAppsSubmenu({ label, icon, apps, empty, report }: TrayAppsSubmenuProps) {
-  const { backend } = useLauncher();
+export function TrayAppsSubmenu({ label, icon, apps, empty, run }: TrayAppsSubmenuProps) {
   return (
     <MenuSubmenuRoot>
       <MenuSubmenuTrigger icon={icon}>{label}</MenuSubmenuTrigger>
@@ -66,7 +59,7 @@ export function TrayAppsSubmenu({ label, icon, apps, empty, report }: TrayAppsSu
             key={app.id}
             media={<AppIcon app={app} size="sm" />}
             disabled={!isLaunchable(app)}
-            onClick={() => backend.launch(app.id).catch(report)}
+            onClick={() => run('open', { app: app.id })}
           >
             {app.name}
           </MenuItem>
@@ -77,9 +70,8 @@ export function TrayAppsSubmenu({ label, icon, apps, empty, report }: TrayAppsSu
 }
 
 /** The portable folders (`storage/users/shared/*`) and the storage root. */
-export function TrayFoldersSubmenu({ report }: { readonly report: Report }) {
-  const { backend } = useLauncher();
-  const open = (folder: SharedFolder) => backend.openFolder(folder).catch(report);
+export function TrayFoldersSubmenu({ run }: { readonly run: TrayRun }) {
+  const open = (folder: SharedFolder) => run('folder', { folder });
   return (
     <MenuSubmenuRoot>
       <MenuSubmenuTrigger icon="codicon:folder">Folders</MenuSubmenuTrigger>
@@ -99,8 +91,8 @@ export function TrayFoldersSubmenu({ report }: { readonly report: Report }) {
 }
 
 /** Theme and window size, written to config.toml (the shell applies them live). */
-export function TrayAppearanceSubmenu({ report }: { readonly report: Report }) {
-  const { backend, settings } = useLauncher();
+export function TrayAppearanceSubmenu({ run }: { readonly run: TrayRun }) {
+  const { settings } = useLauncher();
   const { theme, size } = settings.config.appearance;
   return (
     <MenuSubmenuRoot>
@@ -110,7 +102,7 @@ export function TrayAppearanceSubmenu({ report }: { readonly report: Report }) {
           <MenuRadioGroup
             value={theme}
             onValueChange={(value) => {
-              if (isTheme(value)) backend.setSetting('theme', value).catch(report);
+              if (typeof value === 'string') run('theme', { mode: value });
             }}
           >
             <MenuGroupLabel inset>Theme</MenuGroupLabel>
@@ -126,7 +118,7 @@ export function TrayAppearanceSubmenu({ report }: { readonly report: Report }) {
           <MenuRadioGroup
             value={size}
             onValueChange={(value) => {
-              if (isSize(value)) backend.setSetting('size', value).catch(report);
+              if (typeof value === 'string') run('size', { preset: value });
             }}
           >
             <MenuGroupLabel inset>Window Size</MenuGroupLabel>
@@ -143,39 +135,26 @@ export function TrayAppearanceSubmenu({ report }: { readonly report: Report }) {
 }
 
 /** The Settings tool, the launcher's own files and a rescan. */
-export function TraySettingsSubmenu({ report }: { readonly report: Report }) {
-  const { backend } = useLauncher();
+export function TraySettingsSubmenu({ run }: { readonly run: TrayRun }) {
   return (
     <MenuSubmenuRoot>
       <MenuSubmenuTrigger icon="codicon:settings-gear">Settings</MenuSubmenuTrigger>
       <MenuPopup className="min-w-52">
-        <MenuItem
-          icon="codicon:settings-gear"
-          onClick={() => backend.show('settings').catch(report)}
-        >
+        <MenuItem icon="codicon:settings-gear" onClick={() => run('settings')}>
           Open Settings…
         </MenuItem>
         <MenuSeparator />
-        <MenuItem
-          icon="codicon:go-to-file"
-          onClick={() => backend.openConfigFile('settings').catch(report)}
-        >
+        <MenuItem icon="codicon:go-to-file" onClick={() => run('config', { file: 'settings' })}>
           Edit settings.toml
         </MenuItem>
-        <MenuItem
-          icon="codicon:record-keys"
-          onClick={() => backend.openConfigFile('keybindings').catch(report)}
-        >
+        <MenuItem icon="codicon:record-keys" onClick={() => run('config', { file: 'keybindings' })}>
           Edit keybindings.toml
         </MenuItem>
-        <MenuItem
-          icon="codicon:output"
-          onClick={() => backend.openConfigFile('logs').catch(report)}
-        >
+        <MenuItem icon="codicon:output" onClick={() => run('config', { file: 'logs' })}>
           Open Logs
         </MenuItem>
         <MenuSeparator />
-        <MenuItem icon="codicon:refresh" onClick={() => backend.rescan().catch(report)}>
+        <MenuItem icon="codicon:refresh" onClick={() => run('rescan')}>
           Rescan Apps
         </MenuItem>
       </MenuPopup>

@@ -28,6 +28,7 @@ import type {
   VaultState,
   VaultStatusDto,
 } from './launcher.types';
+import { vaultPasswordProblem } from './vault-password.util';
 
 /** The demo vault's password (the preview shows it as a hint). */
 export const MOCK_VAULT_PASSWORD = PREVIEW_VAULT_PASSWORD;
@@ -332,11 +333,11 @@ function parentOf(path: string): string {
   return slash === -1 ? '' : path.slice(0, slash);
 }
 
+/** The crate's rule: 8 to 1024 bytes of UTF-8 after NFKC. */
 function passwordProblem(password: string): VaultErrorDto | null {
-  const length = [...password.normalize('NFKC')].length;
-  return length < 8 || length > 1024
-    ? vaultError('PASSWORD_REJECTED', 'Use 8 to 1024 characters.')
-    : null;
+  return vaultPasswordProblem(password) === null
+    ? null
+    : vaultError('PASSWORD_REJECTED', 'The password must be 8 to 1024 bytes long.');
 }
 
 export function createMockBackend(options: MockOptions = {}): MockBackend {

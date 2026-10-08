@@ -1,4 +1,5 @@
 import { cn } from '@genslate/design-system';
+import { useId } from 'react';
 
 import type { ThemeSetting } from '../../ipc/launcher.types';
 
@@ -19,29 +20,37 @@ export interface ThemePickerProps {
 
 /**
  * Three cards, each a small launcher drawn with that theme's own tokens (`data-theme` scopes
- * them), so the choice is seen rather than read. System shows both halves.
+ * them), so the choice is seen rather than read. System shows both halves. A radio group:
+ * native radios carry the semantics and the keyboard (one tab stop, arrows move the choice);
+ * the card around each one is its label.
  */
 export function ThemePicker({ value, onValueChange, labelledBy }: ThemePickerProps) {
+  const name = useId();
   return (
-    // biome-ignore lint/a11y/useSemanticElements: a fieldset would add a border and a legend; this is a labelled group of toggle buttons.
-    <div role="group" aria-labelledby={labelledBy} className="grid grid-cols-3 gap-2">
+    <div role="radiogroup" aria-labelledby={labelledBy} className="grid grid-cols-3 gap-2">
       {THEMES.map((theme) => {
         const selected = theme.value === value;
         return (
-          <button
+          <label
             key={theme.value}
-            type="button"
-            aria-pressed={selected}
             data-selected={selected || undefined}
-            onClick={() => onValueChange(theme.value)}
             className={cn(
               'focus-ring flex cursor-interactive flex-col gap-2 rounded-card border p-1.5 pb-2 text-left',
+              'has-focus-visible:outline-focus',
               'transition-colors duration-fast ease-standard',
               selected
                 ? 'border-accent bg-accent-subtle'
                 : 'border-border-subtle hover:border-border hover:bg-fill-hover',
             )}
           >
+            <input
+              type="radio"
+              name={name}
+              value={theme.value}
+              checked={selected}
+              onChange={() => onValueChange(theme.value)}
+              className="sr-only"
+            />
             {theme.value === 'system' ? (
               <span
                 data-slot="theme-preview"
@@ -78,7 +87,7 @@ export function ThemePicker({ value, onValueChange, labelledBy }: ThemePickerPro
                 {theme.label}
               </span>
             </span>
-          </button>
+          </label>
         );
       })}
     </div>

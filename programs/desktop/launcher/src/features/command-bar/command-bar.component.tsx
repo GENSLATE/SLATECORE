@@ -8,8 +8,11 @@ export interface CommandBarProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
-  /** The listbox the input controls (apps or slash suggestions). */
-  readonly controls: string;
+  /**
+   * Ids of the listboxes on screen that the input drives (the apps, or the slash suggestions),
+   * space separated; `undefined` while none is shown (a tool, an empty state, no suggestions).
+   */
+  readonly controls: string | undefined;
   readonly activeDescendant: string | undefined;
   /** Shown while a slash command is being typed. */
   readonly slash: SlashMenuProps | null;
@@ -63,9 +66,9 @@ export function CommandBar({
             type="text"
             role="combobox"
             aria-label="Search apps or type / for commands"
-            aria-expanded={slash !== null}
+            aria-expanded={controls !== undefined}
             aria-controls={controls}
-            aria-activedescendant={activeDescendant}
+            aria-activedescendant={controls === undefined ? undefined : activeDescendant}
             aria-autocomplete="list"
             autoComplete="off"
             autoCorrect="off"
@@ -76,7 +79,9 @@ export function CommandBar({
             onKeyDown={onKeyDown}
             className="min-w-0 flex-1 bg-transparent text-fg-strong text-sm outline-none placeholder:text-fg-muted"
           />
-          {value === '' ? <Kbd shortcut={focusShortcut} size="sm" className="shrink-0" /> : null}
+          {value === '' && focusShortcut.trim() !== '' ? (
+            <Kbd shortcut={focusShortcut} size="sm" className="shrink-0" />
+          ) : null}
           <IconButton
             size="sm"
             label="Ask AI"

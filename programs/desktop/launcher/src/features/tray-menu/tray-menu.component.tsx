@@ -19,11 +19,7 @@ import {
   TrayFoldersSubmenu,
   TraySettingsSubmenu,
 } from './tray-menu-submenus.component';
-
-/** The menu is failing silently otherwise: it has closed by the time a call fails. */
-function report(error: unknown) {
-  console.error('tray menu:', error);
-}
+import { report, useTrayCommands } from './use-tray-commands.hook';
 
 export interface TrayMenuProps {
   /** Anchor to open at straight away (the browser preview); the shell sends one per click. */
@@ -38,6 +34,7 @@ export interface TrayMenuProps {
  */
 export function TrayMenu({ initialAnchor }: TrayMenuProps) {
   const { backend, context, settings, list, pinned } = useLauncher();
+  const run = useTrayCommands();
   const [anchor, setAnchor] = useState<TrayMenuAnchor | undefined>(initialAnchor);
   const [open, setOpen] = useState(initialAnchor !== undefined);
   // Every open starts fresh (no submenu left open from last time).
@@ -101,17 +98,10 @@ export function TrayMenu({ initialAnchor }: TrayMenuProps) {
           }
         />
         <MenuSeparator />
-        <MenuItem
-          icon="codicon:window"
-          shortcut={toggleShortcut}
-          onClick={() => backend.show().catch(report)}
-        >
+        <MenuItem icon="codicon:window" shortcut={toggleShortcut} onClick={() => run('show')}>
           Show Launcher
         </MenuItem>
-        <MenuItem
-          icon={pinned ? 'codicon:pinned' : 'codicon:pin'}
-          onClick={() => backend.setPinned(!pinned).catch(report)}
-        >
+        <MenuItem icon={pinned ? 'codicon:pinned' : 'codicon:pin'} onClick={() => run('pin')}>
           {pinned ? 'Unpin from Top' : 'Pin on Top'}
         </MenuItem>
         <MenuSeparator />
@@ -120,24 +110,24 @@ export function TrayMenu({ initialAnchor }: TrayMenuProps) {
           icon="codicon:history"
           apps={recentApps(list)}
           empty="No recent apps"
-          report={report}
+          run={run}
         />
         <TrayAppsSubmenu
           label="Favorites"
           icon="codicon:star-empty"
           apps={favoriteApps(list)}
           empty="No favorites yet"
-          report={report}
+          run={run}
         />
-        <TrayFoldersSubmenu report={report} />
+        <TrayFoldersSubmenu run={run} />
         <MenuSeparator />
-        <TrayAppearanceSubmenu report={report} />
-        <TraySettingsSubmenu report={report} />
-        <MenuItem icon="codicon:question" onClick={() => backend.show('help').catch(report)}>
+        <TrayAppearanceSubmenu run={run} />
+        <TraySettingsSubmenu run={run} />
+        <MenuItem icon="codicon:question" onClick={() => run('help')}>
           Help
         </MenuItem>
         <MenuSeparator />
-        <MenuItem icon="codicon:close" onClick={() => backend.quit().catch(report)}>
+        <MenuItem icon="codicon:close" onClick={() => run('quit')}>
           Quit SLATECORE LAUNCHER
         </MenuItem>
       </MenuPopup>
