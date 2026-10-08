@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="polar-night">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>SLATECORE Design Kit</title>
+    <script>
+      // Theme the page before first paint (mirrors `applyInitialTheme` from the design system).
+      (() => {
+        let theme = 'polar-night';
+        try {
+          const stored = localStorage.getItem('genslate.theme');
+          if (stored === 'polar-night' || stored === 'snow-storm') theme = stored;
+          else if (matchMedia('(prefers-color-scheme: light)').matches) theme = 'snow-storm';
+        } catch {
+          // Storage can be blocked: the dark default stands.
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+    <style>
+      /* Canvas colours until the design-system stylesheet arrives (Nord0 / Snow Storm canvas). */
+      html[data-theme='polar-night'] { background: #2e3440; }
+      html[data-theme='snow-storm'] { background: #f4f7fc; }
+      body { margin: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
