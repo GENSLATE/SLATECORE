@@ -1,0 +1,42 @@
+{
+  "$comment": "Tier 3 allowlist: the only places outside installDir that the launcher (or a process it started) may write, each with the reason. Start empty of guesses: add a rule only after a real trace shows the write, and only with a reason that says why it is outside the launcher's control. Paths are globs (* inside a folder, ** across folders), compared without regard to letter case; {installDir} and %VARIABLE% are expanded when the trace is checked.",
+  "schema": 1,
+  "root": "slatecore-launcher.exe",
+  "rules": [
+    {
+      "id": "install-dir",
+      "reason": "Everything inside installDir is the launcher's own state: configs, logs, cache, database, the WebView2 data folder and TEMP.",
+      "path": "{installDir}\\**"
+    },
+    {
+      "id": "named-pipes",
+      "reason": "Named pipes are inter-process messages, not files: Chromium and WebView2 talk to their helper processes through them and nothing is stored.",
+      "path": "\\Device\\NamedPipe\\**"
+    },
+    {
+      "id": "gpu-shader-cache-d3d",
+      "reason": "The graphics driver keeps compiled shaders for the GPU process; written through the driver, outside the launcher's control and listed in the README.",
+      "path": "%LOCALAPPDATA%\\D3DSCache\\**"
+    },
+    {
+      "id": "gpu-shader-cache-nvidia",
+      "reason": "NVIDIA's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
+      "path": "%LOCALAPPDATA%\\NVIDIA\\**"
+    },
+    {
+      "id": "gpu-shader-cache-amd",
+      "reason": "AMD's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
+      "path": "%LOCALAPPDATA%\\AMD\\**"
+    },
+    {
+      "id": "gpu-shader-cache-intel",
+      "reason": "Intel's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
+      "path": "%LOCALAPPDATA%\\Intel\\**"
+    },
+    {
+      "id": "windows-error-reporting",
+      "reason": "Windows Error Reporting writes crash records when a process of the launcher crashes; Windows' own record, listed in the README.",
+      "path": "%ProgramData%\\Microsoft\\Windows\\WER\\**"
+    }
+  ]
+}
