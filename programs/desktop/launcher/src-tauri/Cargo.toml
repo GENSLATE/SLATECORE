@@ -32,13 +32,11 @@ rfd.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
-tauri = { workspace = true, features = ["common-controls-v6", "dynamic-acl"] }
+tauri = { workspace = true, features = ["common-controls-v6"] }
 tauri-plugin-global-shortcut.workspace = true
 tauri-plugin-log.workspace = true
 tauri-plugin-single-instance.workspace = true
 thiserror.workspace = true
-
-[target.'cfg(windows)'.dependencies]
 winreg.workspace = true
 
 [dev-dependencies]
