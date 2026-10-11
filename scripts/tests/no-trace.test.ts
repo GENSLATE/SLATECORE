@@ -29,12 +29,15 @@ import {
 import {
   diffSnapshots,
   exportHkcuSoftware,
+  filterIgnored,
   gatherFacts,
   type HostSnapshot,
   launcherEnv,
   leaksOf,
   listFolder,
+  parseIgnoreList,
   parseRegExport,
+  runControl,
   runLauncher,
   takeSnapshot,
   tier2SkipReason,
@@ -58,8 +61,6 @@ async function write(root: string, file: string, text = 'x'): Promise<void> {
   await writeFile(path, text);
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
-
 // ─── tier 2: helpers (run everywhere) ──────────────────────────────────────────────────────────
 
 describe('tier 2 helpers', () => {
@@ -67,9 +68,14 @@ describe('tier 2 helpers', () => {
     const dir = await tempDir();
     await write(dir, 'a.txt');
     await write(dir, 'app/deep/file.bin');
-    expect(await listFolder(dir, 1)).toEqual(['a.txt', 'app/']);
-    expect(await listFolder(dir, 2)).toEqual(['a.txt', 'app/', 'app/deep/']);
-    expect(await listFolder(dir, 3)).toEqual(['a.txt', 'app/', 'app/deep/', 'app/deep/file.bin']);
+    const names = async (depth: number) => Object.keys((await listFolder(dir, depth)) ?? {});
+    expect(await names(1)).toEqual(['a.txt', 'app/']);
+    expect(await names(2)).toEqual(['a.txt', 'app/', 'app/deep/']);
+    expect(await names(3)).toEqual(['a.txt', 'app/', 'app/deep/', 'app/deep/file.bin']);
+    // Folders have no signature; files carry size:mtime.
+    const listing = (await listFolder(dir, 3)) ?? {};
+    expect(listing['app/']).toBe('');
+    expect(listing['a.txt']).toMatch(/^1:\d+$/);
     expect(await listFolder(join(dir, 'missing'), 1)).toBeNull();
   });
 
@@ -105,11 +111,14 @@ describe('tier 2 helpers', () => {
 
   test('diff_reports_added_removed_and_changed_entries_in_folders_and_registry', () => {
     const before: HostSnapshot = {
-      folders: { TEMP: ['keep', 'gone.tmp'], APPDATA: null },
+      folders: { TEMP: { keep: '1:1', 'gone.tmp': '1:1', 'edited.cfg': '5:100' }, APPDATA: null },
       registry: { 'HKCU\\A': '1', 'HKCU\\B': '1', 'HKCU\\C': '1' },
     };
     const after: HostSnapshot = {
-      folders: { TEMP: ['keep', 'new.tmp'], APPDATA: ['xyz.genslate/'] },
+      folders: {
+        TEMP: { keep: '1:1', 'new.tmp': '1:1', 'edited.cfg': '6:200' },
+        APPDATA: { 'xyz.genslate/': '' },
+      },
       registry: { 'HKCU\\A': '1', 'HKCU\\B': '2', 'HKCU\\D': '1' },
     };
     expect(diffSnapshots(before, after)).toEqual([
@@ -120,6 +129,8 @@ describe('tier 2 helpers', () => {
       '- HKCU\\C',
       '- TEMP/gone.tmp',
       '~ HKCU\\B',
+      // A file edited in place (same name, other size and time) is a change too.
+      '~ TEMP/edited.cfg',
     ]);
     expect(diffSnapshots(before, before)).toEqual([]);
   });
@@ -139,7 +150,9 @@ describe('tier 2 helpers', () => {
       { TEMP: join(dir, 'temp'), APPDATA: undefined, LOCALAPPDATA: join(dir, 'none') },
       async () => '[HKCU\\X]\n"a"=1\n',
     );
-    expect(snapshot.folders).toEqual({ TEMP: ['a.tmp'], LOCALAPPDATA: null });
+    expect(Object.keys(snapshot.folders['TEMP'] ?? {})).toEqual(['a.tmp']);
+    expect(snapshot.folders['LOCALAPPDATA']).toBeNull();
+    expect(Object.keys(snapshot.folders)).toEqual(['TEMP', 'LOCALAPPDATA']);
     expect(Object.keys(snapshot.registry)).toEqual(['HKCU\\X']);
   });
 
@@ -156,6 +169,77 @@ describe('tier 2 helpers', () => {
       '+ LOCALAPPDATA/xyz.genslate.slatecore.launcher/',
       '+ LOCALAPPDATA/xyz.genslate.slatecore.launcher/EBWebView/',
     ]);
+  });
+
+  test('an_existing_file_edited_in_place_shows_up_as_a_change', async () => {
+    const dir = await tempDir();
+    await write(dir, 'local/settings.dat', 'one');
+    const places = { LOCALAPPDATA: join(dir, 'local') };
+    const registry = async (): Promise<string> => '';
+    const start = await takeSnapshot(places, registry);
+    await write(dir, 'local/settings.dat', 'one and more');
+    expect(diffSnapshots(start, await takeSnapshot(places, registry))).toEqual([
+      '~ LOCALAPPDATA/settings.dat',
+    ]);
+  });
+
+  test('ignore_rules_drop_windows_owned_noise_and_nothing_else', async () => {
+    const list = parseIgnoreList(
+      JSON.parse(await readFile(join(ROOT, 'scripts/no-trace/tier2-ignore.json'), 'utf8')),
+    );
+    const store =
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Compatibility Assistant\\Store';
+    const changes = [
+      `~ ${store}`,
+      '+ HKEY_CURRENT_USER\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\TrayNotify',
+      '~ HKEY_CURRENT_USER\\Software\\classes\\local settings\\software\\microsoft\\windows\\shell\\muicache',
+      '~ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\\{GUID}\\Count',
+      '+ LOCALAPPDATA/Microsoft/Windows/Explorer/iconcache_32.db',
+      '+ LOCALAPPDATA/D3DSCache/',
+      // The launcher's own leaks are never ignored.
+      '+ LOCALAPPDATA/xyz.genslate.slatecore.launcher/',
+      '+ HKEY_CURRENT_USER\\Software\\Microsoft\\Edge\\BLBeacon',
+      '+ HKEY_CURRENT_USER\\Software\\GENSLATE',
+      '+ TEMP/scratch.tmp',
+      // Only below a rule, not a sibling that shares its start.
+      '+ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssistant',
+    ];
+    expect(filterIgnored(changes, list.rules)).toEqual(changes.slice(6));
+  });
+
+  test('the_shipped_ignore_list_is_valid_reasoned_and_marked_provisional', async () => {
+    const list = parseIgnoreList(
+      JSON.parse(await readFile(join(ROOT, 'scripts/no-trace/tier2-ignore.json'), 'utf8')),
+    );
+    // True until a real Windows run has confirmed it; change it only with that run.
+    expect(list.provisional).toBe(true);
+    for (const rule of list.rules) expect(rule.reason, rule.id).toMatch(/^Provisional/);
+    const rule = {
+      id: 'a',
+      reason: 'a reason that is long enough',
+      path: 'HKEY_CURRENT_USER\\Software\\X\\Y',
+    };
+    expect(() => parseIgnoreList({ schema: 1, provisional: true, rules: [rule] })).not.toThrow();
+    expect(() => parseIgnoreList({ schema: 2, provisional: true, rules: [] })).toThrow(/schema/);
+    expect(() => parseIgnoreList({ schema: 1, rules: [] })).toThrow(/provisional/);
+    expect(() =>
+      parseIgnoreList({ schema: 1, provisional: true, rules: [{ ...rule, reason: 'short' }] }),
+    ).toThrow(/reason/);
+    for (const path of [
+      'HKEY_CURRENT_USER\\**',
+      'HKEY_CURRENT_USER\\Software\\**',
+      'LOCALAPPDATA/**',
+      'C:/Users/x',
+      'HKEY_LOCAL_MACHINE\\Software\\X\\Y',
+    ]) {
+      expect(
+        () => parseIgnoreList({ schema: 1, provisional: true, rules: [{ ...rule, path }] }),
+        path,
+      ).toThrow();
+    }
+    expect(() => parseIgnoreList({ schema: 1, provisional: true, rules: [rule, rule] })).toThrow(
+      /duplicate/,
+    );
   });
 
   test('the_launcher_environment_loses_webview2_variables_only', () => {
@@ -215,7 +299,7 @@ describe('tier 2: the packaged exe leaves no trace', () => {
       const installDir = await mkdtemp(join(parent, 'run-'));
       temporary.push(installDir);
       // The registry export holds the whole HKCU\Software hive: it is deleted with the run.
-      temporary.push(join(parent, 'registry'));
+      temporary.push(join(parent, 'registry'), join(parent, 'control'));
       await extractZip(zip, installDir);
       const exe = join(installDir, ...EXE_ZIP_PATH.split('/'));
 
@@ -234,10 +318,17 @@ describe('tier 2: the packaged exe leaves no trace', () => {
       const afterRun = await snapshot();
       const runChanges = diffSnapshots(before, afterRun);
 
-      // 2. The control run: the same wait with no launcher, to measure the PC's own noise.
-      await sleep(Date.now() - started);
+      // 2. The control run: a harmless exe (a copy of a System32 program) and the same wait, to
+      // measure the PC's own noise, including what Windows writes for any new exe it sees.
+      await runControl({
+        workDir: join(installDir, '..', 'control'),
+        durationMs: Math.max(0, Date.now() - started),
+      });
       const afterControl = await snapshot();
       const controlChanges = diffSnapshots(afterRun, afterControl);
+      const ignore = parseIgnoreList(
+        JSON.parse(await readFile(join(ROOT, 'scripts/no-trace/tier2-ignore.json'), 'utf8')),
+      );
 
       // It really started (not a vacuous pass), and it wrote its state inside the install folder.
       expect(run.ready, `the launcher never logged its start. Log tail:\n${run.logTail}`).toBe(
@@ -246,9 +337,9 @@ describe('tier 2: the packaged exe leaves no trace', () => {
       expect(await Bun.file(join(installDir, 'other/launcher/logs/launcher.log')).exists()).toBe(
         true,
       );
-      expect(leaksOf(controlChanges, runChanges)).toEqual([]);
+      expect(filterIgnored(leaksOf(controlChanges, runChanges), ignore.rules)).toEqual([]);
     },
-    300_000,
+    600_000,
   );
 });
 
@@ -331,6 +422,17 @@ describe('tier 3: Process Monitor trace', () => {
     expect(
       isWrite(row({ operation: 'RegCreateKey', detail: 'Disposition: REG_CREATED_NEW_KEY' })),
     ).toBe(true);
+    // Only the access flags count, up to Disposition: a later "Write Through" option is not a write.
+    expect(
+      isWrite(
+        create(
+          'Desired Access: Read Attributes, Generic Write, Disposition: Open, Options: Non-Directory File',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isWrite(create('Desired Access: Read Attributes, Disposition: Open, Options: Write Through')),
+    ).toBe(false);
     expect(isWrite(row({ operation: 'SetRenameInformationFile' }))).toBe(true);
     expect(isWrite(row({ operation: 'SetDispositionInformationFile' }))).toBe(true);
   });

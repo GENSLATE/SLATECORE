@@ -82,6 +82,7 @@ msedgewebview
 msvc
 msvcrt
 msys
+muicache
 nextest
 noescape
 noexe
@@ -137,6 +138,7 @@ staticlib
 subview
 Swatinem
 sysinfo
+systemroot
 tabbar
 tailwindcss
 tamasfe

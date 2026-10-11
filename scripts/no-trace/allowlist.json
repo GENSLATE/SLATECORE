@@ -15,27 +15,27 @@
     },
     {
       "id": "gpu-shader-cache-d3d",
-      "reason": "The graphics driver keeps compiled shaders for the GPU process; written through the driver, outside the launcher's control and listed in the README.",
+      "reason": "Provisional until a real trace confirms it: the graphics driver keeps compiled shaders for the GPU process; written through the driver, outside the launcher's control and listed in the README.",
       "path": "%LOCALAPPDATA%\\D3DSCache\\**"
     },
     {
       "id": "gpu-shader-cache-nvidia",
-      "reason": "NVIDIA's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
+      "reason": "Provisional until a real trace confirms it: NVIDIA's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
       "path": "%LOCALAPPDATA%\\NVIDIA\\**"
     },
     {
       "id": "gpu-shader-cache-amd",
-      "reason": "AMD's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
+      "reason": "Provisional until a real trace confirms it: AMD's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
       "path": "%LOCALAPPDATA%\\AMD\\**"
     },
     {
       "id": "gpu-shader-cache-intel",
-      "reason": "Intel's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
+      "reason": "Provisional until a real trace confirms it: Intel's driver shader cache, written on behalf of the GPU process; outside the launcher's control and listed in the README.",
       "path": "%LOCALAPPDATA%\\Intel\\**"
     },
     {
       "id": "windows-error-reporting",
-      "reason": "Windows Error Reporting writes crash records when a process of the launcher crashes; Windows' own record, listed in the README.",
+      "reason": "Provisional until a real trace confirms it: Windows Error Reporting writes crash records when a process of the launcher crashes; Windows' own record, listed in the README.",
       "path": "%ProgramData%\\Microsoft\\Windows\\WER\\**"
     }
   ]

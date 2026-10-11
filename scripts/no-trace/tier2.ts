@@ -9,14 +9,19 @@
  * run changed beyond the control run is a leak.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { readZip } from '../lib/archive';
-import { EXE_ZIP_PATH } from '../lib/targets';
+import { EXE_ZIP_PATH, systemExe } from '../lib/targets';
+import { globToRegExp } from './procmon';
 
-/** A folder listing (`null`: the folder does not exist). Entries are relative, folders end in `/`. */
-export type Listing = readonly string[] | null;
+/**
+ * A folder listing (`null`: the folder does not exist): entry name to a signature. Relative
+ * names, folders end in `/` (signature empty), files carry `size:mtime` so an edit to an
+ * existing file shows up as a change.
+ */
+export type Listing = Readonly<Record<string, string>> | null;
 
 /** What Tier 2 compares: the three OS folders and the registry hive. */
 export interface HostSnapshot {
@@ -30,7 +35,7 @@ export type HostPlaces = Readonly<Record<string, string | undefined>>;
 
 /** Lists `dir` down to `depth` levels (1 is its own entries). */
 export async function listFolder(dir: string, depth: number): Promise<Listing> {
-  const found: string[] = [];
+  const found: Record<string, string> = {};
   async function visit(relative: string, level: number): Promise<void> {
     const entries = await readdir(join(dir, relative), { withFileTypes: true }).catch(
       () => undefined,
@@ -39,17 +44,18 @@ export async function listFolder(dir: string, depth: number): Promise<Listing> {
     for (const entry of entries) {
       const name = relative === '' ? entry.name : `${relative}/${entry.name}`;
       if (entry.isDirectory()) {
-        found.push(`${name}/`);
+        found[`${name}/`] = '';
         if (level < depth) await visit(name, level + 1);
       } else {
-        found.push(name);
+        const info = await stat(join(dir, name)).catch(() => undefined);
+        found[name] = info === undefined ? '?' : `${info.size}:${Math.trunc(info.mtimeMs)}`;
       }
     }
   }
   const top = await readdir(dir).catch(() => undefined);
   if (top === undefined) return null;
   await visit('', 1);
-  return found.sort();
+  return Object.fromEntries(Object.entries(found).sort(([a], [b]) => (a < b ? -1 : 1)));
 }
 
 /**
@@ -77,7 +83,10 @@ export function parseRegExport(text: string): Record<string, string> {
   return keys;
 }
 
-/** What changed between two snapshots: `+ added`, `- removed` and `~ changed` lines, sorted. */
+/**
+ * What changed between two snapshots: `+ added`, `- removed` and `~ changed` lines, sorted. A
+ * file whose size or modification time changed is `~`; a key whose values changed is `~`.
+ */
 export function diffSnapshots(before: HostSnapshot, after: HostSnapshot): string[] {
   const changes: string[] = [];
   for (const label of new Set([...Object.keys(before.folders), ...Object.keys(after.folders)])) {
@@ -85,10 +94,13 @@ export function diffSnapshots(before: HostSnapshot, after: HostSnapshot): string
     const now = after.folders[label] ?? null;
     if (was === null && now !== null) changes.push(`+ ${label} (the folder itself)`);
     if (was !== null && now === null) changes.push(`- ${label} (the folder itself)`);
-    const wasSet = new Set(was ?? []);
-    const nowSet = new Set(now ?? []);
-    for (const entry of nowSet) if (!wasSet.has(entry)) changes.push(`+ ${label}/${entry}`);
-    for (const entry of wasSet) if (!nowSet.has(entry)) changes.push(`- ${label}/${entry}`);
+    for (const name of new Set([...Object.keys(was ?? {}), ...Object.keys(now ?? {})])) {
+      const before = was?.[name];
+      const after = now?.[name];
+      if (before === undefined) changes.push(`+ ${label}/${name}`);
+      else if (after === undefined) changes.push(`- ${label}/${name}`);
+      else if (before !== after) changes.push(`~ ${label}/${name}`);
+    }
   }
   for (const key of new Set([...Object.keys(before.registry), ...Object.keys(after.registry)])) {
     const was = before.registry[key];
@@ -104,6 +116,66 @@ export function diffSnapshots(before: HostSnapshot, after: HostSnapshot): string
 export function leaksOf(control: readonly string[], app: readonly string[]): string[] {
   const noise = new Set(control);
   return app.filter((change) => !noise.has(change));
+}
+
+/** One thing Windows itself records when any new program runs or a tray icon appears. */
+export interface IgnoreRule {
+  readonly id: string;
+  readonly reason: string;
+  /** A glob over a registry key (`HKEY_CURRENT_USER\...`) or a folder entry (`LABEL/...`). The
+   * key or entry and everything below it match. Case-insensitive. */
+  readonly path: string;
+}
+
+export interface IgnoreList {
+  readonly schema: 1;
+  /** The list is a judgement from knowledge, not from a trace: true until a real Windows run. */
+  readonly provisional: boolean;
+  readonly rules: readonly IgnoreRule[];
+}
+
+/** Validates the parsed `tier2-ignore.json`. */
+export function parseIgnoreList(value: unknown): IgnoreList {
+  const raw = value as { schema?: unknown; provisional?: unknown; rules?: unknown };
+  if (raw.schema !== 1) throw new Error('tier 2 ignore list: schema must be 1');
+  if (typeof raw.provisional !== 'boolean') {
+    throw new Error('tier 2 ignore list: "provisional" must say whether a real run confirmed it');
+  }
+  if (!Array.isArray(raw.rules)) throw new Error('tier 2 ignore list: rules must be a list');
+  const seen = new Set<string>();
+  const rules = (raw.rules as Record<string, unknown>[]).map((rule) => {
+    const { id, reason, path } = rule;
+    if (typeof id !== 'string' || typeof reason !== 'string' || typeof path !== 'string') {
+      throw new Error('tier 2 ignore list: every rule needs a string id, reason and path');
+    }
+    if (seen.has(id)) throw new Error(`tier 2 ignore list: duplicate rule id "${id}"`);
+    seen.add(id);
+    if (reason.trim().length < 20) throw new Error(`tier 2 ignore list: "${id}" needs a reason`);
+    if (!/^(HKEY_CURRENT_USER\\|(TEMP|APPDATA|LOCALAPPDATA)\/)/.test(path)) {
+      throw new Error(
+        `tier 2 ignore list: "${id}" must start inside HKEY_CURRENT_USER or a watched folder`,
+      );
+    }
+    const parts = path.split(/[\\/]/);
+    const registry = path.startsWith('HKEY_');
+    if (parts.length < (registry ? 4 : 2) || parts.slice(1, 3).some((part) => part.includes('*'))) {
+      throw new Error(`tier 2 ignore list: "${id}" is too broad`);
+    }
+    return { id, reason, path };
+  });
+  return { schema: 1, provisional: raw.provisional, rules };
+}
+
+/** Drops the changes an ignore rule explains. A change line is `+ x`, `- x` or `~ x`. */
+export function filterIgnored(changes: readonly string[], rules: readonly IgnoreRule[]): string[] {
+  const matchers = rules.map((rule) => {
+    const separator = rule.path.startsWith('HKEY_') ? '\\' : '/';
+    return [globToRegExp(rule.path), globToRegExp(`${rule.path}${separator}**`)] as const;
+  });
+  return changes.filter((change) => {
+    const target = change.slice(2).replace(/ \(the folder itself\)$/, '');
+    return !matchers.some((pair) => pair.some((pattern) => pattern.test(target)));
+  });
 }
 
 /** Snapshots `places` and the registry text returned by `exportRegistry`. */
@@ -124,15 +196,20 @@ export async function exportHkcuSoftware(workDir: string): Promise<string> {
   await mkdir(workDir, { recursive: true });
   const file = join(workDir, 'hkcu-software.reg');
   await rm(file, { force: true });
-  const systemRoot = process.env['SystemRoot'] ?? 'C:\\Windows';
-  const child = Bun.spawn(
-    [join(systemRoot, 'System32', 'reg.exe'), 'export', 'HKCU\\Software', file, '/y'],
-    { stdout: 'ignore', stderr: 'pipe', env: { ...process.env, MSYS_NO_PATHCONV: '1' } },
-  );
-  const [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
-  if (code !== 0) throw new Error(`reg export failed (${code}): ${stderr.trim()}`);
-  // `reg export` writes UTF-16 with a byte order mark.
-  return new TextDecoder('utf-16le').decode(await readFile(file));
+  try {
+    const child = Bun.spawn([systemExe('reg.exe'), 'export', 'HKCU\\Software', file, '/y'], {
+      stdout: 'ignore',
+      stderr: 'pipe',
+      env: { ...process.env, MSYS_NO_PATHCONV: '1' },
+    });
+    const [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
+    if (code !== 0) throw new Error(`reg export failed (${code}): ${stderr.trim()}`);
+    // `reg export` writes UTF-16 with a byte order mark.
+    return new TextDecoder('utf-16le').decode(await readFile(file));
+  } finally {
+    // The export holds the whole hive: it is deleted as soon as it was read.
+    await rm(file, { force: true });
+  }
 }
 
 /** Facts that decide whether Tier 2 can run here. */
@@ -181,7 +258,8 @@ export async function gatherFacts(
   // `fltmc` needs administrator rights: it succeeds only in an elevated shell.
   const elevated =
     platform === 'win32'
-      ? Bun.spawnSync(['fltmc.exe'], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0
+      ? Bun.spawnSync([systemExe('fltmc.exe')], { stdout: 'ignore', stderr: 'ignore' }).exitCode ===
+        0
       : undefined;
   return { platform, elevated, zipPath, exeIsReal, disabled: env['SLATECORE_NO_TRACE'] === '0' };
 }
@@ -245,15 +323,39 @@ export async function runLauncher(options: {
     if (ready) await sleep(options.settleMs);
     log = await readFile(logFile, 'utf8').catch(() => log);
   } finally {
-    const systemRoot = process.env['SystemRoot'] ?? 'C:\\Windows';
-    const kill = Bun.spawn(
-      [join(systemRoot, 'System32', 'taskkill.exe'), '/PID', String(child.pid), '/T', '/F'],
-      { stdout: 'ignore', stderr: 'ignore', env: { ...process.env, MSYS_NO_PATHCONV: '1' } },
-    );
+    const kill = Bun.spawn([systemExe('taskkill.exe'), '/PID', String(child.pid), '/T', '/F'], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+      env: { ...process.env, MSYS_NO_PATHCONV: '1' },
+    });
     await kill.exited;
     await child.exited;
     // WebView2 children and Windows take a moment to let go of their files.
     await sleep(2_000);
   }
   return { ready, logTail: log.split(/\r?\n/).slice(-15).join('\n') };
+}
+
+/**
+ * The control run: starts a harmless program that is not the launcher (a copy of `cmd.exe`, run
+ * with `/c exit`, so it does nothing) and waits `durationMs`. Windows writes some of its own
+ * bookkeeping for every new exe it sees (the Program Compatibility Assistant store, MuiCache,
+ * UserAssist); the copy attracts the same, so that noise appears in both runs and cancels.
+ */
+export async function runControl(options: {
+  readonly workDir: string;
+  readonly durationMs: number;
+}): Promise<void> {
+  await mkdir(options.workDir, { recursive: true });
+  const exe = join(options.workDir, 'slatecore-control.exe');
+  await copyFile(systemExe('cmd.exe'), exe);
+  const child = Bun.spawn([exe, '/c', 'exit'], {
+    cwd: options.workDir,
+    env: launcherEnv(process.env),
+    stdin: 'ignore',
+    stdout: 'ignore',
+    stderr: 'ignore',
+  });
+  await child.exited;
+  await sleep(options.durationMs);
 }

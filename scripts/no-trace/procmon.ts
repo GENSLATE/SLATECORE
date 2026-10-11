@@ -190,6 +190,11 @@ const WRITE_OPERATIONS = new Set([
   'regsetkeysecurity',
 ]);
 
+/** The access flags of a `CreateFile` detail: everything between `Desired Access:` and `Disposition:`. */
+function accessFlags(detail: string): string {
+  return /Desired Access:(.*?)(?:Disposition:|OpenResult:|$)/is.exec(detail)?.[1] ?? '';
+}
+
 /** Whether a row changes something: a write, a rename, a delete, a created file or key. */
 export function isWrite(row: ProcmonRow): boolean {
   if (row.result.toUpperCase() !== 'SUCCESS') return false;
@@ -198,7 +203,7 @@ export function isWrite(row: ProcmonRow): boolean {
   if (operation === 'createfile') {
     return (
       /OpenResult: *(Created|Overwritten|Superseded)/i.test(row.detail) ||
-      /Desired Access:[^,]*\b(Write|Append|Delete|All Access)/i.test(row.detail)
+      /\b(Write|Append|Delete|All Access)/i.test(accessFlags(row.detail))
     );
   }
   if (operation === 'regcreatekey') return /REG_CREATED_NEW_KEY/i.test(row.detail);
