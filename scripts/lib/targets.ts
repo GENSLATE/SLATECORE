@@ -1,3 +1,5 @@
+import { win32 } from 'node:path';
+
 /**
  * What `bun run package` builds and where everything lives: names, folders and the one build
  * command. Plain constants so the stager, the release step, the command and the tests agree.
@@ -50,6 +52,20 @@ export const DIRECTORY_ONLY_DIRS: readonly string[] = ['storage/vault'];
 
 /** Seeds copied from `SEED_APP_DIR` into `other/launcher/`. */
 export const SETTINGS_SEED = 'configs/settings.toml';
+/**
+ * What ships as `configs/settings.toml`: this text, never the working tree file. In dev mode the
+ * launcher writes the developer's own settings into the seed file, and those must not be
+ * packaged. Comments only, so every setting is its default.
+ */
+export const DEFAULT_SETTINGS = [
+  '# SLATECORE LAUNCHER settings. A missing key means its default, so an empty file is fine.',
+  '# The launcher writes only the keys you change in Settings; edit the file by hand if you like.',
+  '',
+].join('\n');
+/** Documents for maintainers (how to package, how the portability test works): not shipped. */
+export const MAINTAINER_DOCS: readonly string[] = ['release.md', 'portability.md'];
+/** The GENSLATE license text is the owner's to supply; an empty seed is reported. */
+export const GENSLATE_LICENSE = 'other/launcher/licenses/genslate.LICENSE.md';
 export const SEED_TREES: readonly string[] = ['documents', 'licenses', 'resources/icons'];
 /** The generated metadata of the launcher itself, stamped with the version. */
 export const METADATA_ZIP_PATH = 'other/launcher/configs/metadata/launcher.toml';
@@ -75,3 +91,18 @@ export const RUNTIME_EXE = 'msedgewebview2.exe';
 /** Name of the folder `expand.exe` creates from Microsoft's cab. */
 export const RUNTIME_FOLDER =
   /^Microsoft\.WebView2\.FixedVersionRuntime\.(\d+\.\d+\.\d+\.\d+)\.x64$/;
+
+/**
+ * A tool in Windows' System32, by absolute path (so Git Bash's `expand` or `reg` are never
+ * picked up). There is no guess at `C:\Windows`: without `SystemRoot` this throws.
+ */
+export function systemExe(
+  name: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const root = env['SystemRoot'];
+  if (root === undefined || root === '') {
+    throw new Error(`SystemRoot is not set, so ${name} cannot be found (this runs on Windows)`);
+  }
+  return win32.join(root, 'System32', name);
+}

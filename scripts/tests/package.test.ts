@@ -14,12 +14,24 @@ import {
   archiveOldBuilds,
   assertLockResolved,
   buildRelease,
+  licenseGaps,
+  looksLikeWindowsExe,
   parseLock,
   readVersion,
   type Webview2Lock,
 } from '../lib/release';
 import { assertCleanEntries, planBase } from '../lib/stage';
-import { BUILD_ARGV, baseZipName, EXE_ZIP_PATH, LOCK_FILE, runtimeZipName } from '../lib/targets';
+import {
+  BUILD_ARGV,
+  baseZipName,
+  DEFAULT_SETTINGS,
+  EXE_ZIP_PATH,
+  GENSLATE_LICENSE,
+  LOCK_FILE,
+  runtimeZipName,
+  SEED_APP_DIR,
+  systemExe,
+} from '../lib/targets';
 
 const temporary: string[] = [];
 
@@ -48,6 +60,7 @@ async function write(root: string, file: string, text = 'x'): Promise<void> {
 }
 
 const LAUNCHER = 'programs/desktop/launcher';
+const GENSLATE_LICENSE_SEED = `${SEED_APP_DIR}/licenses/genslate.LICENSE.md`;
 
 /** A checkout with only what the packager reads: the real seeds, copied. */
 async function seedRepo(): Promise<string> {
@@ -169,10 +182,14 @@ describe('portable base zip', () => {
     const clean = await seedRepo();
     const dirty = await seedRepo();
     for (const junk of JUNK) await write(dirty, junk, 'secret');
+    // The developer's own settings (dev mode writes them into the seed) must not be shipped.
+    await write(dirty, `${SEED_APP_DIR}/configs/settings.toml`, '[appearance]\ntheme = "mine"\n');
 
     const cleanEntries = Object.keys(await buildBase(clean)).sort();
-    const dirtyEntries = Object.keys(await buildBase(dirty)).sort();
+    const dirtyZip = await buildBase(dirty);
+    const dirtyEntries = Object.keys(dirtyZip).sort();
     expect(dirtyEntries).toEqual(cleanEntries);
+    expect(text(dirtyZip['other/launcher/configs/settings.toml'])).toBe(DEFAULT_SETTINGS);
 
     const forbidden =
       /(^|\/)(target|node_modules|dist|gen|\.git|\.genslate|\.turbo|screenshots|ebwebview|vault-session|qa)(\/|$)|(^|\/)\.env|\.(log|tmp|pml|gvh|gvf|gvi)$/i;
@@ -252,6 +269,31 @@ describe('portable base zip', () => {
     expect(await sha256File(join(a, 'x.zip'))).toBe(await sha256File(join(b, 'x.zip')));
   });
 
+  test('package_ships_the_default_settings_whatever_the_working_tree_holds', async () => {
+    const entries = await buildBase(ROOT);
+    expect(text(entries['other/launcher/configs/settings.toml'])).toBe(DEFAULT_SETTINGS);
+    // The default is comments only: valid TOML with no keys, which the launcher reads as defaults.
+    expect(Bun.TOML.parse(DEFAULT_SETTINGS)).toEqual({});
+  });
+
+  test('package_zip_carries_the_third_party_notice_with_the_real_license_texts', async () => {
+    const entries = await buildBase(ROOT);
+    const notice = text(entries['other/launcher/licenses/third-party.NOTICE.md']);
+    expect(notice).toContain('SIL OPEN FONT LICENSE Version 1.1');
+    expect(notice).toContain('The Inter Project Authors');
+    expect(notice).toContain('The JetBrains Mono Project Authors');
+    expect(notice).toContain('Attribution 4.0 International');
+    expect(notice).toContain('Copyright (c) Microsoft Corporation');
+    // The runtime's own notice belongs to the add-on.
+    expect(Object.keys(entries)).not.toContain('other/launcher/licenses/webview2.NOTICE.md');
+  });
+
+  test('package_does_not_ship_maintainer_documents_to_end_users', async () => {
+    const names = Object.keys(await buildBase(ROOT));
+    expect(names).not.toContain('other/launcher/documents/release.md');
+    expect(names).not.toContain('other/launcher/documents/portability.md');
+  });
+
   test('package_refuses_a_missing_or_empty_exe', async () => {
     const dir = await tempDir();
     await expect(
@@ -322,6 +364,89 @@ describe('releases', () => {
     const repo = await tempDir();
     await write(repo, 'package.json', JSON.stringify({ version: 'not-a-version' }));
     await expect(readVersion(repo)).rejects.toThrow(/semver/);
+  });
+
+  test('release_version_must_match_the_version_the_exe_embeds', async () => {
+    const repo = await tempDir();
+    await write(repo, 'package.json', JSON.stringify({ version: '1.2.3' }));
+    await write(
+      repo,
+      'programs/desktop/launcher/package.json',
+      JSON.stringify({ version: '1.2.4' }),
+    );
+    await expect(readVersion(repo)).rejects.toThrow(/launcher/);
+    await write(
+      repo,
+      'programs/desktop/launcher/package.json',
+      JSON.stringify({ version: '1.2.3' }),
+    );
+    expect(await readVersion(repo)).toBe('1.2.3');
+  });
+
+  test('license_gaps_name_an_empty_genslate_license_and_a_release_build_refuses_it', async () => {
+    // The owner has not supplied the GENSLATE license text yet: the seed is empty.
+    expect(await licenseGaps(ROOT)).toEqual([GENSLATE_LICENSE]);
+    const exe = await fakeExe(await tempDir());
+
+    // An ordinary build warns and goes on.
+    const releaseDir = await tempDir();
+    const built = await buildRelease({ root: ROOT, releaseDir, exe, version: '0.1.0' });
+    expect(built.warnings.join('\n')).toContain('genslate.LICENSE.md');
+
+    // A release build refuses before writing anything.
+    const strict = await tempDir();
+    await expect(
+      buildRelease({ root: ROOT, releaseDir: strict, exe, version: '0.1.0', release: true }),
+    ).rejects.toThrow(/genslate\.LICENSE\.md/);
+    expect(await readdir(strict)).toEqual([]);
+
+    // With the text supplied, both modes are quiet and a release build goes through.
+    const repo = await seedRepo();
+    await write(repo, GENSLATE_LICENSE_SEED, 'The license text, supplied by the owner.');
+    expect(await licenseGaps(repo)).toEqual([]);
+    const done = await buildRelease({
+      root: repo,
+      releaseDir: strict,
+      exe,
+      version: '0.1.0',
+      release: true,
+    });
+    expect(done.warnings).toEqual([]);
+    const entries = await readZip(done.base);
+    expect(text(entries[GENSLATE_LICENSE])).toBe('The license text, supplied by the owner.');
+  });
+
+  test('a_failed_move_keeps_the_new_build_and_says_where_it_is', async () => {
+    const releaseDir = await tempDir();
+    const exe = await fakeExe(await tempDir());
+    await write(releaseDir, 'slatecore-launcher-0.0.9-base.zip', 'old base');
+    // `.archive` is a file, so the older build cannot be moved after the new one was written.
+    await write(releaseDir, '.archive', 'in the way');
+    let message = '';
+    try {
+      await buildRelease({ root: ROOT, releaseDir, exe, version: '0.1.0' });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toContain('.building');
+    expect(message).toContain('slatecore-launcher-0.1.0-base.zip');
+    expect(await Bun.file(join(releaseDir, '.building', baseZipName('0.1.0'))).exists()).toBe(true);
+    expect(await readFile(join(releaseDir, 'slatecore-launcher-0.0.9-base.zip'), 'utf8')).toBe(
+      'old base',
+    );
+  });
+
+  test('the_exe_check_wants_an_mz_header_and_system_tools_need_systemroot', async () => {
+    const dir = await tempDir();
+    await writeFile(join(dir, 'real.exe'), 'MZ....');
+    await writeFile(join(dir, 'fake.exe'), 'hello');
+    expect(await looksLikeWindowsExe(join(dir, 'real.exe'))).toBe(true);
+    expect(await looksLikeWindowsExe(join(dir, 'fake.exe'))).toBe(false);
+    expect(systemExe('expand.exe', { SystemRoot: 'D:\\Win' })).toBe(
+      'D:\\Win\\System32\\expand.exe',
+    );
+    // No guess at C:\Windows.
+    expect(() => systemExe('expand.exe', {})).toThrow(/SystemRoot/);
   });
 
   test('old_builds_move_to_archive', async () => {
@@ -572,12 +697,17 @@ describe('webview2 runtime add-on', () => {
 });
 
 describe('package command', () => {
-  async function runCommand(args: readonly string[]): Promise<{ code: number; out: string }> {
+  async function runCommand(
+    args: readonly string[],
+    extraEnv: Record<string, string> = {},
+  ): Promise<{ code: number; out: string }> {
+    // A tag build of the test job must not turn these runs into release builds.
+    const { GITHUB_REF_TYPE: _tag, ...inherited } = process.env;
     const child = Bun.spawn(['bun', join(ROOT, 'scripts/commands/package.ts'), ...args], {
       cwd: ROOT,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { ...process.env, NO_COLOR: '1' },
+      env: { ...inherited, NO_COLOR: '1', ...extraEnv },
     });
     const [stdout, stderr, code] = await Promise.all([
       new Response(child.stdout).text(),
@@ -590,7 +720,7 @@ describe('package command', () => {
   test('package_command_lists_its_options', async () => {
     const { code, out } = await runCommand(['--help']);
     expect(code).toBe(0);
-    for (const option of ['--exe', '--no-build', '--webview2', '--out']) {
+    for (const option of ['--exe', '--no-build', '--webview2', '--out', '--release']) {
       expect(out).toContain(option);
     }
   });
@@ -604,6 +734,30 @@ describe('package command', () => {
     expect(await readdir(releaseDir)).toEqual([baseZipName(version)]);
     const entries = await readZip(join(releaseDir, baseZipName(version)));
     expect(entries[EXE_ZIP_PATH]).toEqual(new TextEncoder().encode(FAKE_EXE));
+  });
+
+  test('package_command_warns_loudly_about_the_empty_license_and_refuses_it_for_releases', async () => {
+    const exe = await fakeExe(await tempDir());
+    const ordinary = await runCommand(['--exe', exe, '--out', await tempDir()]);
+    expect(ordinary.code, ordinary.out).toBe(0);
+    expect(ordinary.out).toMatch(/WARNING/);
+    expect(ordinary.out).toContain('genslate.LICENSE.md');
+
+    for (const [args, env] of [
+      [['--release'], {}],
+      [[], { GITHUB_REF_TYPE: 'tag' }],
+    ] as const) {
+      const releaseDir = await tempDir();
+      const run = await runCommand(['--exe', exe, '--out', releaseDir, ...args], env);
+      expect(run.code, run.out).not.toBe(0);
+      expect(run.out).toContain('genslate.LICENSE.md');
+      expect(await readdir(releaseDir)).toEqual([]);
+    }
+    // Other ref types are ordinary builds.
+    const branch = await runCommand(['--exe', exe, '--out', await tempDir()], {
+      GITHUB_REF_TYPE: 'branch',
+    });
+    expect(branch.code, branch.out).toBe(0);
   });
 
   test('package_command_refuses_the_runtime_add_on_while_the_lock_has_no_hash', async () => {

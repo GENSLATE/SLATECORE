@@ -10,10 +10,12 @@ import { join } from 'node:path';
 
 import { safeEntryPath, type ZipEntry } from './archive';
 import {
+  DEFAULT_SETTINGS,
   DIRECTORY_ONLY_DIRS,
   EXE_NAME,
   EXE_ZIP_PATH,
   LAUNCHER_DIR,
+  MAINTAINER_DOCS,
   METADATA_ZIP_PATH,
   PLACEHOLDER,
   PLACEHOLDER_DIRS,
@@ -161,6 +163,8 @@ async function seedTree(root: string, tree: string): Promise<ZipEntry[]> {
     const zipPath = `other/launcher/${tree}/${relative}`;
     // The runtime notice belongs to the add-on only; QA notes and other leftovers stay home.
     if (zipPath === RUNTIME_NOTICE_ZIP_PATH || isForbiddenPath(zipPath)) continue;
+    // Documents for maintainers do not go to end users.
+    if (tree === 'documents' && MAINTAINER_DOCS.includes(relative)) continue;
     entries.push({ path: zipPath, source: { kind: 'file', path } });
   }
   return entries;
@@ -185,11 +189,9 @@ export async function planBase(options: StageOptions): Promise<ZipEntry[]> {
   }
   entries.push(bytes('README.md', encode(readme.replaceAll('{{version}}', version))));
 
-  const settings = join(root, SEED_APP_DIR, SETTINGS_SEED);
-  entries.push({
-    path: `other/launcher/${SETTINGS_SEED}`,
-    source: { kind: 'file', path: settings },
-  });
+  // The default settings come from a constant, never from the working tree: dev mode writes the
+  // developer's own settings into the seed file.
+  entries.push(bytes(`other/launcher/${SETTINGS_SEED}`, encode(DEFAULT_SETTINGS)));
   entries.push(
     bytes(METADATA_ZIP_PATH, encode(launcherMetadata(version, await bundleIdentifier(root)))),
   );

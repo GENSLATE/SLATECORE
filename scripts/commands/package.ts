@@ -1,5 +1,5 @@
 /**
- * `bun run package [--exe <path>] [--no-build] [--webview2 <cab>] [--out <dir>]`: the portable
+ * `bun run package [--exe <path>] [--no-build] [--webview2 <cab>] [--out <dir>] [--release]`: the portable
  * zips in `release/`. Builds the launcher with `tauri build --no-bundle` (no installer, ever),
  * stages the installDir layout and writes `slatecore-launcher-<version>-base.zip`, plus with
  * `--webview2` the runtime add-on. Older builds move to `release/.archive/`.
@@ -14,6 +14,8 @@ import { fromRoot, ROOT } from '../lib/paths';
 import {
   assertLockResolved,
   buildRelease,
+  licenseGaps,
+  looksLikeWindowsExe,
   parseLock,
   readVersion,
   type Webview2Options,
@@ -26,7 +28,7 @@ const mebibytes = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)
 await defineCommand({
   name: 'package',
   summary: 'Build the portable zips in release/ (base, and with --webview2 the runtime add-on).',
-  usage: '[--exe <path>] [--no-build] [--webview2 <cab>] [--out <dir>]',
+  usage: '[--exe <path>] [--no-build] [--webview2 <cab>] [--out <dir>] [--release]',
   options: {
     exe: {
       type: 'string',
@@ -44,6 +46,11 @@ await defineCommand({
       type: 'string',
       description: 'Write the zips here instead of release/.',
     },
+    release: {
+      type: 'boolean',
+      description:
+        'A release build: refuse when the GENSLATE license text is missing (also on when GITHUB_REF_TYPE=tag).',
+    },
   },
   details: `
 Examples
@@ -58,6 +65,19 @@ The build runs on Windows only; elsewhere use --exe with a build from a Windows 
     const exe = values.exe === undefined ? fromRoot(BUILT_EXE) : resolve(values.exe);
     const releaseDir = values.out === undefined ? fromRoot('release') : resolve(values.out);
     const version = await readVersion(ROOT);
+
+    // A tag build is a release build, as is --release. A missing license text stops it before the
+    // long build; any other build only warns.
+    const release = values.release || process.env['GITHUB_REF_TYPE'] === 'tag';
+    const gaps = await licenseGaps(ROOT);
+    for (const gap of gaps) {
+      log.warn(
+        `WARNING: ${gap} is empty. The GENSLATE license text has to come from the owner before a tagged release.`,
+      );
+    }
+    if (release && gaps.length > 0) {
+      fail(`refusing a release build: the license text is missing (${gaps.join(', ')})`);
+    }
 
     // Refuse before any work: the add-on needs a lock a person has verified.
     let webview2: Webview2Options | undefined;
@@ -79,9 +99,10 @@ The build runs on Windows only; elsewhere use --exe with a build from a Windows 
 
     const info = await stat(exe).catch(() => undefined);
     if (info === undefined || !info.isFile()) fail(`the launcher exe is missing: ${exe}`);
-    const magic = new Uint8Array(await Bun.file(exe).slice(0, 2).arrayBuffer());
-    if (magic[0] !== 0x4d || magic[1] !== 0x5a) {
-      log.warn(`${exe} is not a Windows executable (no MZ header); packaging it anyway`);
+    if (!(await looksLikeWindowsExe(exe))) {
+      // A path given with --exe is the caller's choice; anything else must be a real program.
+      if (values.exe === undefined) fail(`${exe} is not a Windows executable (no MZ header)`);
+      log.warn(`${exe} is not a Windows executable (no MZ header); packaging it as asked`);
     }
 
     log.title(`package · ${version}`);
@@ -90,6 +111,7 @@ The build runs on Windows only; elsewhere use --exe with a build from a Windows 
       releaseDir,
       exe,
       version,
+      release,
       ...(webview2 === undefined ? {} : { webview2 }),
     });
     for (const old of result.archived) log.info(`archived ${old}`);

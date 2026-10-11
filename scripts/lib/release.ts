@@ -3,7 +3,7 @@
  * (`scripts/webview2.lock.json`), the add-on zip, and `release/` housekeeping (older builds move
  * to `release/.archive/`). Every check that can refuse runs before the first byte is written.
  */
-import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { sha256File, writeZip, type ZipEntry } from './archive';
@@ -12,27 +12,61 @@ import {
   ARCHIVE_DIR,
   BUILDING_DIR,
   baseZipName,
+  GENSLATE_LICENSE,
+  LAUNCHER_DIR,
   LOCK_FILE,
   MICROSOFT_DOMAIN,
   RELEASE_PREFIX,
   RUNTIME_EXE,
   RUNTIME_FOLDER,
   runtimeZipName,
+  SEED_APP_DIR,
+  systemExe,
 } from './targets';
 
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const UNRESOLVED = 'UNRESOLVED';
 
-/** The version of the repo: the root `package.json`, which `bun run version` keeps in step. */
+/**
+ * The version of the repo: the root `package.json`, which `bun run version` keeps in step. The
+ * launcher's own `package.json` must say the same, because that is the version the exe embeds.
+ */
 export async function readVersion(root: string): Promise<string> {
-  const parsed = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
-    version?: unknown;
-  };
-  const version = parsed.version;
+  const read = async (file: string): Promise<unknown> =>
+    (JSON.parse(await readFile(join(root, file), 'utf8')) as { version?: unknown }).version;
+  const version = await read('package.json');
   if (typeof version !== 'string' || !SEMVER.test(version)) {
     throw new Error(`the root package.json version "${String(version)}" is not semver`);
   }
+  const embedded = await read(`${LAUNCHER_DIR}/package.json`);
+  if (embedded !== version) {
+    throw new Error(
+      `the launcher's package.json version "${String(embedded)}" is not the root version "${version}", so the exe would report another version than the zip name; run \`bun run version\``,
+    );
+  }
   return version;
+}
+
+/** `true` when the file starts with the `MZ` of a Windows program. */
+export async function looksLikeWindowsExe(path: string): Promise<boolean> {
+  const handle = await open(path, 'r');
+  try {
+    const head = new Uint8Array(2);
+    const { bytesRead } = await handle.read(head, 0, 2, 0);
+    return bytesRead === 2 && head[0] === 0x4d && head[1] === 0x5a;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The license files a release must carry but that are empty or missing: the GENSLATE license
+ * text is the owner's to supply, and nobody else writes it.
+ */
+export async function licenseGaps(root: string): Promise<string[]> {
+  const seed = join(root, SEED_APP_DIR, 'licenses', 'genslate.LICENSE.md');
+  const info = await stat(seed).catch(() => undefined);
+  return info?.isFile() === true && info.size > 0 ? [] : [GENSLATE_LICENSE];
 }
 
 /** `scripts/webview2.lock.json`: which Microsoft file the runtime add-on is made from. */
@@ -154,9 +188,9 @@ export async function archiveOldBuilds(releaseDir: string): Promise<string[]> {
 /** Runs Windows' own `expand.exe` (not GNU `expand` from Git Bash) on the cab. */
 export async function expandCab(cab: string, destination: string): Promise<void> {
   if (process.platform !== 'win32') throw new Error('expanding the WebView2 cab needs Windows');
-  const systemRoot = process.env['SystemRoot'] ?? 'C:\\Windows';
+  const expand = systemExe('expand.exe');
   await mkdir(destination, { recursive: true });
-  const child = Bun.spawn([join(systemRoot, 'System32', 'expand.exe'), cab, '-F:*', destination], {
+  const child = Bun.spawn([expand, cab, '-F:*', destination], {
     stdout: 'inherit',
     stderr: 'inherit',
   });
@@ -179,6 +213,8 @@ export interface ReleaseOptions {
   /** Default: the repo version. */
   readonly version?: string;
   readonly webview2?: Webview2Options;
+  /** A release build: a missing license text is an error, not a warning. */
+  readonly release?: boolean;
   /** Scratch space for the extracted cab. Default: `<root>/target/package`. */
   readonly workDir?: string;
 }
@@ -189,6 +225,8 @@ export interface ReleaseResult {
   readonly runtime?: string;
   /** Where the older builds went. */
   readonly archived: readonly string[];
+  /** Problems that do not stop an ordinary build (a release build refuses them). */
+  readonly warnings: readonly string[];
 }
 
 /** Refuses a cab that is not the file the lock names. */
@@ -232,12 +270,22 @@ export async function buildRelease(options: ReleaseOptions): Promise<ReleaseResu
   const { root, releaseDir, exe, webview2 } = options;
   const version = options.version ?? (await readVersion(root));
 
+  const gaps = await licenseGaps(root);
+  const warnings = gaps.map(
+    (path) =>
+      `${path} is empty: the GENSLATE license text has to come from the owner before a tagged release`,
+  );
+  if (options.release === true && warnings.length > 0) {
+    throw new Error(`refusing a release build: ${warnings.join('; ')}`);
+  }
   if (webview2 !== undefined) await verifyCab(webview2);
   const baseEntries = await planBase({ root, exe, version });
 
   const work = options.workDir ?? join(root, 'target', 'package');
   let extracted: string | undefined;
   const building = join(releaseDir, BUILDING_DIR);
+  // Once the new zips exist they are kept if anything later fails: the build is never lost.
+  let keepBuilding = false;
   try {
     let runtimeEntries: ZipEntry[] | undefined;
     if (webview2 !== undefined) {
@@ -255,22 +303,33 @@ export async function buildRelease(options: ReleaseOptions): Promise<ReleaseResu
       runtimeEntries = await planRuntime({ runtimeDir, facts, notice });
     }
 
+    await rm(building, { recursive: true, force: true });
     await mkdir(building, { recursive: true });
     await writeZip(baseEntries, join(building, baseZipName(version)));
-    if (runtimeEntries !== undefined) {
-      await writeZip(runtimeEntries, join(building, runtimeZipName(version)));
+    keepBuilding = true;
+    try {
+      if (runtimeEntries !== undefined) {
+        await writeZip(runtimeEntries, join(building, runtimeZipName(version)));
+      }
+      const archived = await archiveOldBuilds(releaseDir);
+      const base = join(releaseDir, baseZipName(version));
+      await rename(join(building, baseZipName(version)), base);
+      let runtime: string | undefined;
+      if (runtimeEntries !== undefined) {
+        runtime = join(releaseDir, runtimeZipName(version));
+        await rename(join(building, runtimeZipName(version)), runtime);
+      }
+      keepBuilding = false;
+      return { version, base, ...(runtime === undefined ? {} : { runtime }), archived, warnings };
+    } catch (error) {
+      const kept = (await readdir(building).catch(() => [] as string[])).map((name) =>
+        join(building, name),
+      );
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`${reason}\nthe new build is kept: ${kept.join(', ')}`, { cause: error });
     }
-    const archived = await archiveOldBuilds(releaseDir);
-    const base = join(releaseDir, baseZipName(version));
-    await rename(join(building, baseZipName(version)), base);
-    let runtime: string | undefined;
-    if (runtimeEntries !== undefined) {
-      runtime = join(releaseDir, runtimeZipName(version));
-      await rename(join(building, runtimeZipName(version)), runtime);
-    }
-    return { version, base, ...(runtime === undefined ? {} : { runtime }), archived };
   } finally {
-    await rm(building, { recursive: true, force: true });
+    if (!keepBuilding) await rm(building, { recursive: true, force: true });
     if (extracted !== undefined) await rm(extracted, { recursive: true, force: true });
   }
 }
