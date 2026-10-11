@@ -214,6 +214,8 @@ describe('tier 2: the packaged exe leaves no trace', () => {
       await mkdir(parent, { recursive: true });
       const installDir = await mkdtemp(join(parent, 'run-'));
       temporary.push(installDir);
+      // The registry export holds the whole HKCU\Software hive: it is deleted with the run.
+      temporary.push(join(parent, 'registry'));
       await extractZip(zip, installDir);
       const exe = join(installDir, ...EXE_ZIP_PATH.split('/'));
 
