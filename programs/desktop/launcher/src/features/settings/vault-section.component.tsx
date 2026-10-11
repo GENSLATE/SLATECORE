@@ -21,7 +21,13 @@ import {
 import { useLauncher } from '../../app/launcher.context';
 import { isVaultError } from '../../ipc/launcher.parse';
 import { PREVIEW_VAULT_PASSWORD } from '../../ipc/launcher.preview';
-import type { EntryDto, VaultStatusDto } from '../../ipc/launcher.types';
+import type {
+  EntryDto,
+  LockBlockedDto,
+  VaultErrorDto,
+  VaultStatusDto,
+} from '../../ipc/launcher.types';
+import { isBlockedType } from '../../ipc/open-policy.util';
 import {
   VAULT_PASSWORD_MAX_BYTES,
   VAULT_PASSWORD_MIN_BYTES,
@@ -30,6 +36,10 @@ import {
 import { formatBytes } from '../status/format.util';
 import { SettingsGroup } from './settings-row.component';
 import { errorMessage, useReport } from './use-report.hook';
+
+/** Why a file the shell refuses to open (`BLOCKED_TYPE`) stays in the vault. */
+const BLOCKED_TYPE_MESSAGE =
+  "That file type can run code, so it can't be opened from the vault. Export it to a folder instead.";
 
 /** A vault error in words; it never repeats the password. */
 export function vaultMessage(error: unknown): string {
@@ -41,6 +51,8 @@ export function vaultMessage(error: unknown): string {
       return `Too many wrong passwords. Try again in ${Math.ceil((error.retryAfterMs ?? 30_000) / 1000)} s.`;
     case 'PASSWORD_REJECTED':
       return `Use ${VAULT_PASSWORD_MIN_BYTES} to ${VAULT_PASSWORD_MAX_BYTES} bytes.`;
+    case 'BLOCKED_TYPE':
+      return BLOCKED_TYPE_MESSAGE;
     default:
       return error.message;
   }
@@ -302,14 +314,37 @@ function nameOf(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
 }
 
+/** `a`, `a and b`, `a, b and c`. */
+function listOf(items: readonly string[]): string {
+  if (items.length < 2) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1) ?? ''}`;
+}
+
+/** The files a lock could not save, from an `UNSYNCED_EDITS` error (empty for other errors). */
+function unsavedOf(error: VaultErrorDto): readonly string[] {
+  return error.code === 'UNSYNCED_EDITS' ? (error.paths ?? []) : [];
+}
+
+/** A lock from this view that failed on unsaved edits. */
+interface LockFailure {
+  readonly error: VaultErrorDto;
+  /** The shell's notice at the time (a later one replaces this failure). */
+  readonly seenWith: LockBlockedDto | undefined;
+}
+
 function UnlockedVault({ status }: { status: VaultStatusDto }) {
-  const { backend } = useLauncher();
+  const { backend, lockBlocked, vaultOpenNoteSeen, markVaultOpenNoteSeen } = useLauncher();
   const toast = useToast();
   const report = useReport();
   const [dir, setDir] = useState('');
   const [listing, setListing] = useState<Listing>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [checking, setChecking] = useState(false);
+  // The file waiting behind the traces note, and the last file the shell refused to open.
+  const [pending, setPending] = useState<EntryDto | undefined>();
+  const [refused, setRefused] = useState<string | undefined>();
+  // Why the last lock from this view failed, and which shell notice was showing at the time.
+  const [lockFailure, setLockFailure] = useState<LockFailure | undefined>();
 
   const revision = `${status.entryCount ?? 0}:${status.sessionFiles}:${attempt}`;
   // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` reloads the list when the vault's content changes (or on Try again).
@@ -328,11 +363,9 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
     };
   }, [backend, dir, revision]);
 
-  const open = (entry: EntryDto) => {
-    if (entry.kind === 'dir') {
-      setDir(entry.path);
-      return;
-    }
+  const decrypt = (entry: EntryDto) => {
+    setPending(undefined);
+    setRefused(undefined);
     backend.vaultOpen(entry.path).then(
       () =>
         toast.add({
@@ -340,8 +373,24 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
           description: 'Edits are encrypted again when you save.',
           type: 'success',
         }),
-      (reason: unknown) => report(reason),
+      (reason: unknown) => {
+        if (isVaultError(reason) && reason.code === 'BLOCKED_TYPE') setRefused(entry.path);
+        else report(reason);
+      },
     );
+  };
+
+  const open = (entry: EntryDto) => {
+    if (entry.kind === 'dir') {
+      setDir(entry.path);
+      return;
+    }
+    // A type the shell refuses is never decrypted, so it leaves no traces to warn about.
+    if (vaultOpenNoteSeen || isBlockedType(entry.path)) decrypt(entry);
+    else {
+      setRefused(undefined);
+      setPending(entry);
+    }
   };
 
   const verify = () => {
@@ -364,21 +413,42 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
       .finally(() => setChecking(false));
   };
 
-  const lock = () => {
-    backend.vaultLock().then((result) => {
-      if (result.unsynced.length > 0)
-        toast.add({
-          title: 'Some edits were not saved into the vault',
-          description: result.unsynced.join(', '),
-          type: 'warning',
-        });
-    }, report);
-  };
+  const lock = (force?: true) =>
+    (force === true ? backend.vaultLock(true) : backend.vaultLock()).then(
+      (result) => {
+        setLockFailure(undefined);
+        if (result.unsynced.length > 0)
+          toast.add({
+            title:
+              force === true
+                ? 'Vault locked, unsaved edits discarded'
+                : 'Some edits were not saved into the vault',
+            description: result.unsynced.join(', '),
+            type: 'warning',
+          });
+      },
+      (reason: unknown) => {
+        // Edits the vault could not take back: say so where the lock buttons are, not in a toast.
+        if (isVaultError(reason) && reason.code === 'UNSYNCED_EDITS')
+          setLockFailure({ error: reason, seenWith: lockBlocked });
+        else report(reason);
+      },
+    );
 
   return (
     <>
+      <LockBlockedNotice
+        error={
+          // A newer notice from the shell supersedes what the last Lock again said.
+          lockFailure !== undefined && lockFailure.seenWith === lockBlocked
+            ? lockFailure.error
+            : lockBlocked?.error
+        }
+        automatic={lockBlocked !== undefined}
+        onLock={lock}
+      />
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" size="sm" leadingIcon="codicon:lock" onClick={lock}>
+        <Button variant="primary" size="sm" leadingIcon="codicon:lock" onClick={() => lock()}>
           Lock now
         </Button>
         <Button size="sm" leadingIcon="codicon:verified" loading={checking} onClick={verify}>
@@ -422,6 +492,32 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
             </Button>
           )}
         </div>
+        {pending === undefined ? null : (
+          <OpenTracesNote
+            name={nameOf(pending.path)}
+            onOpen={() => {
+              markVaultOpenNoteSeen();
+              decrypt(pending);
+            }}
+            onLater={() => setPending(undefined)}
+            onDismiss={() => {
+              markVaultOpenNoteSeen();
+              setPending(undefined);
+            }}
+          />
+        )}
+        {refused === undefined ? null : (
+          <div className="px-2 pb-2">
+            <Banner
+              tone="warning"
+              aria-label={`Can't open ${nameOf(refused)}`}
+              title={`Can't open ${nameOf(refused)}`}
+              onDismiss={() => setRefused(undefined)}
+            >
+              {BLOCKED_TYPE_MESSAGE}
+            </Banner>
+          </div>
+        )}
         {listing.kind === 'loading' ? (
           <div className="h-24" />
         ) : listing.kind === 'failed' ? (
@@ -494,6 +590,131 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
           : ''}
       </p>
     </>
+  );
+}
+
+/**
+ * Shown once per session before the first file is decrypted: Windows opens it through Explorer,
+ * which records it like any other file.
+ */
+function OpenTracesNote({
+  name,
+  onOpen,
+  onLater,
+  onDismiss,
+}: {
+  name: string;
+  onOpen: () => void;
+  onLater: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="px-2 pb-2">
+      <Banner
+        tone="info"
+        aria-label="Opening leaves traces on this PC"
+        title="Opening leaves traces on this PC"
+        onDismiss={onDismiss}
+      >
+        <p>
+          Windows Explorer opens a plaintext copy, so the file name and its contents can show up in
+          Recent Items and in the program's own recent lists and autosaves. Export leaves nothing
+          behind.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="xs" variant="primary" leadingIcon="codicon:go-to-file" onClick={onOpen}>
+            Open {name}
+          </Button>
+          <Button size="xs" variant="ghost" onClick={onLater}>
+            Not now
+          </Button>
+        </div>
+      </Banner>
+    </div>
+  );
+}
+
+/**
+ * The vault could not lock (the shell's own lock on idle or hide, or the last Lock now): it stays
+ * unlocked until the edits are saved, or the user locks anyway and loses them after confirming.
+ */
+function LockBlockedNotice({
+  error,
+  automatic,
+  onLock,
+}: {
+  error: VaultErrorDto | undefined;
+  automatic: boolean;
+  onLock: (force?: true) => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (error === undefined) return null;
+
+  const lead = automatic ? "Couldn't lock automatically" : "Couldn't lock";
+  const unsaved = unsavedOf(error);
+  const count = unsaved.length;
+  const problem =
+    error.code === 'UNSYNCED_EDITS'
+      ? `${count} edited ${count === 1 ? "file couldn't" : "files couldn't"} be saved. Close the program that has ${count === 1 ? 'it' : 'them'} open, then lock again.`
+      : `${vaultMessage(error)} Try to lock again.`;
+  const run = (force?: true) => {
+    setBusy(true);
+    onLock(force).finally(() => {
+      setBusy(false);
+      setConfirming(false);
+    });
+  };
+
+  return (
+    <Banner tone={confirming ? 'danger' : 'warning'} aria-label={lead}>
+      {confirming ? (
+        <p>
+          <span className="font-semibold text-fg-strong">Lock anyway?</span>{' '}
+          {count === 0
+            ? 'Edits that were not saved are lost.'
+            : `Edits to ${listOf(unsaved)} are lost.`}{' '}
+          The vault keeps the last saved {count === 1 ? 'version' : 'versions'}.
+        </p>
+      ) : (
+        <p>
+          <span className="font-semibold text-fg-strong">{lead}:</span> {problem}
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {confirming ? (
+          <>
+            <Button
+              size="xs"
+              variant="danger"
+              leadingIcon="codicon:lock"
+              loading={busy}
+              onClick={() => run(true)}
+            >
+              Discard edits and lock
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              size="xs"
+              variant="primary"
+              leadingIcon="codicon:lock"
+              loading={busy}
+              onClick={() => run()}
+            >
+              Lock again
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => setConfirming(true)}>
+              Lock and discard unsaved edits
+            </Button>
+          </>
+        )}
+      </div>
+    </Banner>
   );
 }
 

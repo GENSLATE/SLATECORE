@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 
 import { App } from '../../src/app/app.component';
 import { AppProviders } from '../../src/app/app.providers';
-import { type Boot, LauncherProvider } from '../../src/app/launcher.provider';
+import { type Boot, LauncherProvider, loadTrayBoot } from '../../src/app/launcher.provider';
 import { TrayMenu } from '../../src/features/tray-menu/tray-menu.component';
 import type { LauncherBackend } from '../../src/ipc/launcher.client';
 import { createMockBackend, type MockBackend, type MockOptions } from '../../src/ipc/launcher.mock';
@@ -31,16 +31,23 @@ export interface HarnessOptions extends MockOptions {
   readonly list?: AppList;
 }
 
-async function boot(options: HarnessOptions) {
+async function boot(options: HarnessOptions, window: 'launcher' | 'tray-menu' = 'launcher') {
   const { list: listOverride, ...mockOptions } = options;
   const raw = createMockBackend(mockOptions);
   const backend = spyBackend(raw);
-  const [context, list, vault] = await Promise.all([
-    backend.context(),
-    backend.listApps(),
-    backend.vaultStatus(),
-  ]);
-  const loaded: Boot = { backend, context, list: listOverride ?? list, vault };
+  let loaded: Boot;
+  if (window === 'tray-menu') {
+    // The tray window boots as `tray-menu.main.tsx` does.
+    const tray = await loadTrayBoot(backend);
+    loaded = { ...tray, list: listOverride ?? tray.list };
+  } else {
+    const [context, list, vault] = await Promise.all([
+      backend.context(),
+      backend.listApps(),
+      backend.vaultStatus(),
+    ]);
+    loaded = { backend, context, list: listOverride ?? list, vault, followsVault: true };
+  }
   // The shell's events update React state: deliver them inside `act`, as a user event would be.
   const emit: MockBackend['emit'] = (event, payload) => {
     act(() => raw.emit(event, payload));
@@ -73,7 +80,7 @@ export async function renderLauncher(options: HarnessOptions = {}) {
 
 /** The tray menu window, opened at a bottom-right anchor. */
 export async function renderTrayMenu(options: HarnessOptions = {}) {
-  const { loaded, backend, emit } = await boot(options);
+  const { loaded, backend, emit } = await boot(options, 'tray-menu');
   const user = userEvent.setup();
   const view = await mount(
     loaded,

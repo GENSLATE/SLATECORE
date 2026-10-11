@@ -14,6 +14,7 @@ import {
   parseAppList,
   parseContext,
   parseEntries,
+  parseLockBlocked,
   parseLockReport,
   parseSettings,
   parseShowView,
@@ -96,7 +97,8 @@ export interface LauncherBackend extends VaultBackend {
   iconUrl(id: string): string;
 }
 
-const EVENT_NAMES: { readonly [E in keyof LauncherEvents]: string } = {
+/** The shell's event names (`src-tauri/src/events.rs`; a test compares them). */
+export const LAUNCHER_EVENT_NAMES: { readonly [E in keyof LauncherEvents]: string } = {
   shown: 'launcher://shown',
   willHide: 'launcher://will-hide',
   pinned: 'launcher://pinned',
@@ -104,6 +106,7 @@ const EVENT_NAMES: { readonly [E in keyof LauncherEvents]: string } = {
   catalog: 'launcher://catalog',
   telemetry: 'launcher://telemetry',
   vault: 'vault://status',
+  vaultLockBlocked: 'vault://lock-blocked',
   trayMenuOpen: 'tray-menu://open',
   trayMenuClose: 'tray-menu://close',
 };
@@ -118,6 +121,7 @@ const EVENT_PARSERS: { readonly [E in keyof LauncherEvents]: (raw: unknown) => L
     catalog: () => undefined,
     telemetry: parseTelemetry,
     vault: parseVaultStatus,
+    vaultLockBlocked: parseLockBlocked,
     trayMenuOpen: parseTrayMenuAnchor,
     trayMenuClose: () => undefined,
   };
@@ -144,7 +148,7 @@ const tauriBackend: LauncherBackend = {
   runAction: async (id, params) =>
     parseActionOutcome(await invokeCommand<unknown>('run_action', { id, params })),
   on: (event, handler) =>
-    listenEvent<unknown>(EVENT_NAMES[event], (raw) => handler(EVENT_PARSERS[event](raw))),
+    listenEvent<unknown>(LAUNCHER_EVENT_NAMES[event], (raw) => handler(EVENT_PARSERS[event](raw))),
   iconUrl: (id) => customSchemeUrl('launcher-icon', id.split('/')),
 
   vaultStatus: async () => parseVaultStatus(await invokeCommand<unknown>(VAULT_COMMANDS.status)),

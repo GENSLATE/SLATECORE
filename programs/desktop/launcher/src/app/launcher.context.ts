@@ -4,6 +4,7 @@ import type { LauncherBackend } from '../ipc/launcher.client';
 import type {
   AppList,
   LauncherContext,
+  LockBlockedDto,
   Settings,
   ShowView,
   VaultStatusDto,
@@ -26,6 +27,15 @@ export interface LauncherState {
   readonly showCount: number;
   /** The view the last show asked for (the tray menu opens Help or Settings). */
   readonly showView: ShowView;
+  /**
+   * Why the shell could not lock the vault on its own (`vault://lock-blocked`), until the vault
+   * leaves the unlocked state. The vault stays unlocked meanwhile.
+   */
+  readonly lockBlocked: LockBlockedDto | undefined;
+  /** Whether the note on what opening a vault file leaves behind was read in this session. */
+  readonly vaultOpenNoteSeen: boolean;
+  /** Marks that note read (in memory only: the next start shows it again). */
+  readonly markVaultOpenNoteSeen: () => void;
 }
 
 export const LauncherStateContext = createContext<LauncherState | null>(null);

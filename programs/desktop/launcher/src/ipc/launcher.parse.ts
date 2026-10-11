@@ -16,6 +16,8 @@ import type {
   Keybindings,
   LauncherConfig,
   LauncherContext,
+  LockBlockedDto,
+  LockReason,
   LockReportDto,
   ParamSpec,
   RunMode,
@@ -116,6 +118,7 @@ const EFFECTS: readonly Effect[] = [
   'writes-config',
   'ai',
 ];
+const LOCK_REASONS: readonly LockReason[] = ['idle', 'hidden'];
 const VAULT_STATES: readonly VaultState[] = ['uninitialized', 'locked', 'unlocked'];
 const ENTRY_KINDS: readonly EntryDto['kind'][] = ['file', 'dir'];
 const VAULT_PROBLEMS: readonly VaultProblem[] = [
@@ -146,6 +149,7 @@ const VAULT_ERROR_CODES: readonly VaultErrorCode[] = [
   'FILE_TOO_LARGE',
   'CANCELLED',
   'UNSYNCED_EDITS',
+  'BLOCKED_TYPE',
   'IO',
   'INTERNAL',
 ];
@@ -411,6 +415,33 @@ export function parseVerifyReport(value: unknown): VerifyReportDto {
 export function parseVaultOpened(value: unknown): { readonly sessionPath: string } {
   const raw = object(value, 'opened vault file');
   return { sessionPath: string(raw['sessionPath'], 'opened vault file.sessionPath') };
+}
+
+/** A vault error inside a payload, read field by field (unknown fields dropped). */
+function vaultErrorDto(value: unknown, what: string): VaultErrorDto {
+  const raw = object(value, what);
+  const code = oneOf(VAULT_ERROR_CODES)(raw['code'], `${what}.code`);
+  const message = string(raw['message'], `${what}.message`);
+  const retryAfterMs =
+    raw['retryAfterMs'] === undefined
+      ? undefined
+      : number(raw['retryAfterMs'], `${what}.retryAfterMs`);
+  const paths = raw['paths'] === undefined ? undefined : strings(raw['paths'], `${what}.paths`);
+  return {
+    code,
+    message,
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    ...(paths === undefined ? {} : { paths }),
+  };
+}
+
+/** `vault://lock-blocked`. */
+export function parseLockBlocked(value: unknown): LockBlockedDto {
+  const raw = object(value, 'lock blocked');
+  return {
+    reason: oneOf(LOCK_REASONS)(raw['reason'], 'lock blocked.reason'),
+    error: vaultErrorDto(raw['error'], 'lock blocked.error'),
+  };
 }
 
 /** A rejected vault command (`VaultErrorDto`); its message never contains the password. */

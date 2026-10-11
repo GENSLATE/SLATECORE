@@ -8,6 +8,7 @@ import {
   parseAppList,
   parseContext,
   parseEntries,
+  parseLockBlocked,
   parseLockReport,
   parseSettings,
   parseTrayMenuAnchor,
@@ -191,5 +192,33 @@ describe('launcher.parse', () => {
     expect(isVaultError({ code: 'UNSYNCED_EDITS', message: 'x', paths: [1] })).toBe(false);
     expect(isVaultError({ code: 'IO' })).toBe(false);
     expect(isVaultError('IO')).toBe(false);
+    expect(isVaultError({ code: 'BLOCKED_TYPE', message: 'can run code' })).toBe(true);
+  });
+
+  test('a blocked automatic lock: reason and a well-formed vault error', () => {
+    const good = {
+      reason: 'hidden',
+      error: { code: 'UNSYNCED_EDITS', message: 'edits could not be saved', paths: ['ideas.md'] },
+    } as const;
+    expect(parseLockBlocked(json(good))).toEqual(good);
+    expect(parseLockBlocked({ reason: 'idle', error: { code: 'BUSY', message: 'busy' } })).toEqual({
+      reason: 'idle',
+      error: { code: 'BUSY', message: 'busy' },
+    });
+    const bad: [unknown, string][] = [
+      [{ ...good, reason: 'manual' }, 'lock blocked.reason'],
+      [{ reason: 'idle' }, 'lock blocked.error'],
+      [{ ...good, error: { ...good.error, code: 'NEW_CODE' } }, 'lock blocked.error.code'],
+      [{ ...good, error: { code: 'IO' } }, 'lock blocked.error.message'],
+      [{ ...good, error: { ...good.error, paths: [1] } }, 'lock blocked.error.paths[0]'],
+      [
+        { ...good, error: { ...good.error, retryAfterMs: 'soon' } },
+        'lock blocked.error.retryAfterMs',
+      ],
+      ['UNSYNCED_EDITS', 'lock blocked'],
+    ];
+    for (const [payload, what] of bad) {
+      expect(() => parseLockBlocked(payload)).toThrow(new PayloadError(what));
+    }
   });
 });

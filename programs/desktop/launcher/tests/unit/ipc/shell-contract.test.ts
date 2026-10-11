@@ -10,7 +10,11 @@ import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { loadBoot, loadTrayBoot } from '../../../src/app/launcher.provider';
 import { runCommand } from '../../../src/app/launcher-commands.model';
 import { trayCommandHost } from '../../../src/features/tray-menu/use-tray-commands.hook';
-import { createBackend, type LauncherBackend } from '../../../src/ipc/launcher.client';
+import {
+  createBackend,
+  LAUNCHER_EVENT_NAMES,
+  type LauncherBackend,
+} from '../../../src/ipc/launcher.client';
 import { createMockBackend } from '../../../src/ipc/launcher.mock';
 import type {
   ConfigFile,
@@ -31,6 +35,13 @@ interface RustParam {
 const snakeToCamel = (name: string) =>
   name.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
 
+/**
+ * Parameter types Tauri fills in itself (the caller's window or webview, the app, managed state,
+ * the raw request or a scope); the webview sends no argument for them.
+ */
+const INJECTED =
+  /^(?:tauri::)?(?:ipc::)?(?:AppHandle|State|Window|WebviewWindow|Webview|Request|CommandScope|GlobalScope)\b/;
+
 /** `#[tauri::command]` functions and their webview-supplied parameters. */
 async function rustCommands(): Promise<Map<string, readonly RustParam[]>> {
   const commands = new Map<string, readonly RustParam[]>();
@@ -47,7 +58,7 @@ async function rustCommands(): Promise<Map<string, readonly RustParam[]>> {
           const [name = '', ...type] = part.split(':');
           return { name: name.trim(), type: type.join(':').trim() };
         })
-        .filter((param) => !/^(AppHandle|State<)/.test(param.type));
+        .filter((param) => !INJECTED.test(param.type));
       commands.set(match[1] ?? '', params);
     }
   }
@@ -233,6 +244,13 @@ describe('the shell contract', () => {
 
   test('argument keys are the camelCase names of the Rust parameters', async () => {
     const rust = await rustCommands();
+    // Injected parameters are skipped, nothing else: the caller's window is Tauri's to fill.
+    expect(rust.get('launch_app')?.map((param) => param.name)).toEqual(['id', 'args']);
+    expect(rust.get('vault_import')?.map((param) => param.name)).toEqual([
+      'sources',
+      'dest_dir',
+      'on_conflict',
+    ]);
     const invoked = await recording((backend) =>
       Promise.all(Object.values(CALLS).flatMap((call) => call(backend))),
     );
@@ -331,5 +349,12 @@ describe('the shell contract', () => {
     for (const command of commands) {
       expect({ command, allowed: tray.has(command) }).toEqual({ command, allowed: true });
     }
+  });
+
+  test('the UI listens to exactly the events the shell emits, by name', async () => {
+    const source = await read('src/events.rs');
+    const rust = [...source.matchAll(/pub const \w+: &str = "([^"]+)";/g)].map((m) => m[1] ?? '');
+    expect(rust.length).toBeGreaterThan(9);
+    expect(Object.values(LAUNCHER_EVENT_NAMES).sort()).toEqual(rust.sort());
   });
 });

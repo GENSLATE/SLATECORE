@@ -22,6 +22,15 @@ const openSubmenu = async (name: string) => {
 };
 
 describe('TrayMenu', () => {
+  test('the tray window follows no vault events (the shell sends them to the launcher only)', async () => {
+    const { backend } = await setup();
+    const events = backend.on.mock.calls.map(([event]) => event);
+    expect(events).toEqual(expect.arrayContaining(['shown', 'settings', 'catalog']));
+    expect(events).not.toContain('vault');
+    expect(events).not.toContain('vaultLockBlocked');
+    expect(backend.vaultStatus).not.toHaveBeenCalled();
+  });
+
   test('opens with the header and the top-level rows', async () => {
     await setup();
     const menu = await screen.findByRole('menu', { name: 'SLATECORE LAUNCHER' });

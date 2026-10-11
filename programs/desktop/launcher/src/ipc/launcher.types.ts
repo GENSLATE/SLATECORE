@@ -264,6 +264,8 @@ export type VaultErrorCode =
   | 'FILE_TOO_LARGE'
   | 'CANCELLED'
   | 'UNSYNCED_EDITS'
+  /** `vault_open` refused a file type that can run code (`src-tauri/src/open_policy.rs`). */
+  | 'BLOCKED_TYPE'
   | 'IO'
   | 'INTERNAL';
 
@@ -272,6 +274,19 @@ export interface VaultErrorDto {
   readonly message: string;
   readonly retryAfterMs?: number;
   readonly paths?: readonly string[];
+}
+
+/** Which automatic lock could not finish. */
+export type LockReason = 'idle' | 'hidden';
+
+/**
+ * `vault://lock-blocked`: an automatic lock could not finish (for an edited file that cannot be
+ * saved: `UNSYNCED_EDITS` with its vault paths). The vault stays unlocked and the shell keeps
+ * retrying; it repeats the notice about once a minute while the block lasts.
+ */
+export interface LockBlockedDto {
+  readonly reason: LockReason;
+  readonly error: VaultErrorDto;
 }
 
 /** Events from the shell and their payloads. */
@@ -284,6 +299,8 @@ export interface LauncherEvents {
   readonly telemetry: Telemetry;
   /** `vault://status`: every vault state change, automatic locks included. */
   readonly vault: VaultStatusDto;
+  /** `vault://lock-blocked`: an automatic lock is blocked; the vault is still unlocked. */
+  readonly vaultLockBlocked: LockBlockedDto;
   /** Tray menu window only: open at this anchor. */
   readonly trayMenuOpen: TrayMenuAnchor;
   /** Tray menu window only: focus left, close. */

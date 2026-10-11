@@ -15,6 +15,7 @@ import type {
   EntryDto,
   LauncherContext,
   LauncherEvents,
+  LockBlockedDto,
   Settings,
   SizePreset,
   Source,
@@ -28,6 +29,7 @@ import type {
   VaultState,
   VaultStatusDto,
 } from './launcher.types';
+import { isBlockedType } from './open-policy.util';
 import { vaultPasswordProblem } from './vault-password.util';
 
 /** The demo vault's password (the preview shows it as a hint). */
@@ -45,6 +47,12 @@ export interface MockOptions {
   readonly status?: StatusMode | undefined;
   /** Initial vault state. @default 'locked' */
   readonly vault?: VaultState | undefined;
+  /**
+   * Two opened files have edits the vault cannot save: the automatic lock is blocked (the mock
+   * sends `vault://lock-blocked` to the first listener), a plain lock fails with
+   * `UNSYNCED_EDITS` and only a forced one locks, dropping the edits.
+   */
+  readonly lockBlocked?: boolean | undefined;
   /** Why the settings file was ignored (shows the status bar's warning). */
   readonly issue?: string | undefined;
   /**
@@ -285,6 +293,7 @@ function query(name: string): string | null {
 
 /**
  * `?theme=snow-storm&size=l&pinned&status=usage&vault=uninitialized&empty&noThirdParty&issue`
+ * (`&vault=unlocked&lockBlocked` plays a blocked automatic lock)
  * in the dev URL tweak the preview (handy for screenshots).
  */
 export function mockOptionsFromUrl(): MockOptions {
@@ -300,6 +309,7 @@ export function mockOptionsFromUrl(): MockOptions {
     ...(theme === 'snow-storm' || theme === 'polar-night' ? { theme } : {}),
     ...(size === 's' || size === 'l' || size === 'm' ? { size } : {}),
     ...(vault === 'uninitialized' || vault === 'unlocked' ? { vault } : {}),
+    lockBlocked: query('lockBlocked') !== null,
     ...(query('issue') === null
       ? {}
       : { issue: 'settings.toml line 3: expected a value after "theme ="' }),
@@ -364,6 +374,7 @@ function seedVault(now: number): EntryDto[] {
     dir('Contracts', 12),
     dir('Photos', 3),
     file('ideas.md', 4_812, 1),
+    file('backup.ps1', 2_316, 9),
     file('budget-2026.xlsx', 48_210, 6),
     file('Contracts/lease-2026.pdf', 412_337, 40),
     file('Contracts/insurance.pdf', 233_120, 75),
@@ -468,6 +479,17 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
   let vaultEntries: EntryDto[] = initial === 'uninitialized' ? [] : seedVault(Date.now());
   let failedAttempts = 0;
   let throttledUntil = 0;
+  /** Opened files whose edits cannot be saved (they block a plain lock). */
+  let unsaved: readonly string[] =
+    options.lockBlocked === true && initial === 'unlocked' ? ['ideas.md', 'budget-2026.xlsx'] : [];
+  const lockBlockedNotice = (): LockBlockedDto => ({
+    reason: 'hidden',
+    error: {
+      code: 'UNSYNCED_EDITS',
+      message: `${unsaved.length} edited files could not be saved into the vault`,
+      paths: unsaved,
+    },
+  });
   let sessionFiles = 0;
 
   const vaultStatus = (): VaultStatusDto => {
@@ -597,6 +619,10 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
       const wrapped: Handler = (payload) => handler(payload as never);
       set.add(wrapped);
       listeners.set(event, set);
+      // The shell repeats a blocked lock's notice; a new listener hears it soon after.
+      if (event === 'vaultLockBlocked' && unsaved.length > 0 && vaultState === 'unlocked') {
+        setTimeout(() => emit('vaultLockBlocked', lockBlockedNotice()), 0);
+      }
       return () => set.delete(wrapped);
     },
     iconUrl: (id) => {
@@ -624,13 +650,21 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
       vaultState = 'unlocked';
       return vaultChanged();
     },
-    vaultLock: async () => {
+    vaultLock: async (force) => {
       requireUnlocked();
+      if (unsaved.length > 0 && force !== true) {
+        throw {
+          ...vaultError('UNSYNCED_EDITS', lockBlockedNotice().error.message),
+          paths: unsaved,
+        };
+      }
+      const unsynced = unsaved;
+      unsaved = [];
       const wipedFiles = sessionFiles;
       sessionFiles = 0;
       vaultState = 'locked';
       vaultChanged();
-      return { synced: [], unsynced: [], wipedFiles, undeletable: [] };
+      return { synced: [], unsynced: [...unsynced], wipedFiles, undeletable: [] };
     },
     vaultChangePassword: async (current, next) => {
       requireUnlocked();
@@ -670,6 +704,13 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
     },
     vaultOpen: async (path) => {
       requireUnlocked();
+      // Like the shell: refused before anything is decrypted.
+      if (isBlockedType(path)) {
+        throw vaultError(
+          'BLOCKED_TYPE',
+          'this type of file can run code, so SLATECORE LAUNCHER will not open it from the vault; export it to a folder instead',
+        );
+      }
       if (!vaultEntries.some((entry) => entry.path === path && entry.kind === 'file'))
         throw vaultError('NOT_FOUND', 'That file is not in the vault.');
       await later(250);

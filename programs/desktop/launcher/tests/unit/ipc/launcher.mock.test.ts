@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createMockBackend, MOCK_VAULT_PASSWORD } from '../../../src/ipc/launcher.mock';
 import { isVaultError } from '../../../src/ipc/launcher.parse';
 import { VAULT_COMMANDS } from '../../../src/ipc/launcher.types';
+import { BLOCKED_EXTENSIONS, isBlockedType } from '../../../src/ipc/open-policy.util';
 
 describe('mock backend', () => {
   test('serves a plausible drive: three sources, favorites, recent and unavailable apps', async () => {
@@ -108,5 +109,80 @@ describe('mock backend', () => {
       'vault_open',
       'vault_verify',
     ]);
+  });
+
+  test('vault_open refuses the code-bearing types of open_policy.rs, by name as Windows reads it', async () => {
+    const policy = await Bun.file(
+      new URL('../../../src-tauri/src/open_policy.rs', import.meta.url),
+    ).text();
+    const list = /const BLOCKED: &\[&str\] = &\[([\s\S]*?)\];/.exec(policy)?.[1] ?? '';
+    const rust = [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1] ?? '');
+    expect(rust.length).toBeGreaterThan(40);
+    expect([...BLOCKED_EXTENSIONS].sort()).toEqual(rust.sort());
+
+    for (const name of [
+      'setup.exe',
+      'RUN.BAT',
+      'backup.ps1',
+      'notes.lnk',
+      'report.pdf.exe',
+      'evil.exe. ',
+      '.exe',
+      'a.txt:stream',
+      'Documents\\tools\\setup.exe',
+      'file.CHM',
+      'disk.iso',
+      'tool.vsix',
+      // A non-ASCII character in the extension: not a type the list can vouch for.
+      'report.\u0435xe',
+      'note.t\uff58t',
+      'a.\u202etxt',
+    ]) {
+      expect({ name, blocked: isBlockedType(name) }).toEqual({ name, blocked: true });
+    }
+    for (const name of [
+      'ideas.md',
+      'exe',
+      'Photos/aurora.jpg',
+      'exe.txt',
+      'setup.exe/readme.txt',
+      'folder.exe/',
+      'budget.xlsm',
+      'archive.tar.gz',
+      '',
+      'r\u00e9sum\u00e9.pdf',
+      '\u65e5\u672c\u8a9e.txt',
+    ]) {
+      expect({ name, blocked: isBlockedType(name) }).toEqual({ name, blocked: false });
+    }
+
+    const backend = createMockBackend({ vault: 'unlocked' });
+    const refused = await backend.vaultOpen('backup.ps1').catch((error: unknown) => error);
+    expect(isVaultError(refused) && refused.code).toBe('BLOCKED_TYPE');
+    expect((await backend.vaultStatus()).sessionFiles).toBe(0);
+    await expect(backend.vaultOpen('ideas.md')).resolves.toBeDefined();
+  });
+
+  test('a blocked automatic lock: plain locks fail, a forced one drops the edits', async () => {
+    const backend = createMockBackend({ vault: 'unlocked', lockBlocked: true });
+    const notices: unknown[] = [];
+    await backend.on('vaultLockBlocked', (notice) => notices.push(notice));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(notices).toEqual([
+      {
+        reason: 'hidden',
+        error: {
+          code: 'UNSYNCED_EDITS',
+          message: '2 edited files could not be saved into the vault',
+          paths: ['ideas.md', 'budget-2026.xlsx'],
+        },
+      },
+    ]);
+    const refused = await backend.vaultLock().catch((error: unknown) => error);
+    expect(isVaultError(refused) && refused.code).toBe('UNSYNCED_EDITS');
+    expect((await backend.vaultStatus()).state).toBe('unlocked');
+    const report = await backend.vaultLock(true);
+    expect(report.unsynced).toEqual(['ideas.md', 'budget-2026.xlsx']);
+    expect((await backend.vaultStatus()).state).toBe('locked');
   });
 });
