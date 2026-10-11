@@ -1,7 +1,7 @@
 /**
  * The real command registry is Rust (`crates/launcher-core/src/actions.rs`); the browser mock
- * only copies part of it. These tests read the Rust source itself, so a renamed id or parameter
- * there fails here instead of turning a slash command into a silent no-op.
+ * copies it. These tests read the Rust source itself, so a renamed id or parameter there fails
+ * here instead of turning a slash command into a silent no-op.
  */
 import { describe, expect, test } from 'bun:test';
 
@@ -24,7 +24,12 @@ interface RustParam {
 interface RustAction {
   readonly id: string;
   readonly params: readonly RustParam[];
+  /** `Effect::<Name>` in kebab case (`ui`, `writes-config`, …), as the registry serialises it. */
+  readonly effect: string;
 }
+
+/** Effects the shell's `run_action` hands back to the UI (`{ kind: 'ui' }`) instead of doing. */
+const UI_EFFECTS: readonly string[] = ['ui', 'ai'];
 
 const ACTIONS_RS = new URL(
   '../../../../../../crates/launcher-core/src/actions.rs',
@@ -52,7 +57,10 @@ async function rustRegistry(): Promise<RustAction[]> {
     .map((chunk) => {
       const id = /\bid: "([^"]+)"/.exec(chunk)?.[1];
       if (id === undefined) throw new Error(`action without an id: ${chunk}`);
-      if (/params: &\[APP\]/.test(chunk)) return { id, params: [appParam] };
+      const variant = /effect: Effect::(\w+)/.exec(chunk)?.[1];
+      if (variant === undefined) throw new Error(`action without an effect: ${id}`);
+      const effect = variant.replace(/(?<=[a-z])(?=[A-Z])/g, '-').toLowerCase();
+      if (/params: &\[APP\]/.test(chunk)) return { id, params: [appParam], effect };
       const params = [
         ...chunk.matchAll(
           /ParamSpec \{\s*name: "(\w+)",[\s\S]*?kind: ParamKind::(\w+)(?: \{\s*values: (?:&\[([^\]]*)\]|(\w+)),?\s*\})?,\s*required: (true|false)/g,
@@ -68,7 +76,7 @@ async function rustRegistry(): Promise<RustAction[]> {
           required: required === 'true',
         };
       });
-      return { id, params };
+      return { id, params, effect };
     });
 }
 
@@ -95,6 +103,7 @@ function host() {
     backend,
     apps: [app('genslate/terminal')],
     pinned: false,
+    tool: undefined,
     launch: () => effects.push('launch'),
     show: () => effects.push('show'),
     inform: () => effects.push('inform'),
@@ -122,6 +131,41 @@ describe('the Rust command registry', () => {
       },
     ]);
     expect(registry.find((action) => action.id === 'config')?.params).toEqual([]);
+    expect(registry.find((action) => action.id === 'tab')?.effect).toBe('ui');
+    expect(registry.find((action) => action.id === 'fav')?.effect).toBe('writes-config');
+  });
+
+  test('every ui and ai action runs in the launcher, never through the shell', async () => {
+    // run_action only answers `{ kind: 'ui' }` for these, so a fallthrough would do nothing.
+    const registry = await rustRegistry();
+    const local: readonly string[] = COMMAND_IDS;
+    const ui = registry.filter((action) => UI_EFFECTS.includes(action.effect));
+    expect(ui.map((action) => action.id)).toEqual(
+      expect.arrayContaining(['tab', 'tools', 'settings', 'vault', 'help', 'ask']),
+    );
+    for (const action of ui) {
+      expect({ id: action.id, local: local.includes(action.id) }).toEqual({
+        id: action.id,
+        local: true,
+      });
+      for (const params of calls(action)) {
+        for (const tool of [undefined, 'settings', 'manager'] as const) {
+          const { host: h, backend, effects } = host();
+          runCommand({ ...h, tool }, action.id, params);
+          await flush();
+          const what = `/${action.id} ${JSON.stringify(params)} (tool open: ${tool ?? 'none'})`;
+          expect({ what, runAction: backend.runAction.mock.calls.length }).toEqual({
+            what,
+            runAction: 0,
+          });
+          // A ui action changes the view: it shows something (or says why it cannot).
+          expect({ what, shown: effects.some((effect) => effect !== 'fail') }).toEqual({
+            what,
+            shown: true,
+          });
+        }
+      }
+    }
   });
 
   test('every action the launcher handles itself acts on the Rust parameter names', async () => {
@@ -153,6 +197,10 @@ describe('the Rust command registry', () => {
     const registry = await rustRegistry();
     const local: readonly string[] = COMMAND_IDS;
     for (const action of registry.filter((entry) => !local.includes(entry.id))) {
+      expect({ id: action.id, effect: UI_EFFECTS.includes(action.effect) }).toEqual({
+        id: action.id,
+        effect: false,
+      });
       const { host: h, backend } = host();
       const [params = {}] = calls(action);
       runCommand(h, action.id, params);
@@ -163,6 +211,10 @@ describe('the Rust command registry', () => {
   test('the browser mock lists Rust ids with the Rust parameter names', async () => {
     const registry = await rustRegistry();
     const { actions } = await createMockBackend().context();
+    // The whole registry, in its order, so the slash menu in a browser is the real one.
+    expect(actions.map((action) => [action.id, action.effect])).toEqual(
+      registry.map((action) => [action.id, action.effect]),
+    );
     for (const action of actions) {
       const rust = registry.find((entry) => entry.id === action.id);
       expect({ id: action.id, params: action.params.map((param) => param.name) }).toEqual({

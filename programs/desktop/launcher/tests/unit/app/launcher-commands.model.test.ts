@@ -23,6 +23,7 @@ function host(overrides: Partial<CommandHost> = {}) {
     backend,
     apps: APPS,
     pinned: false,
+    tool: undefined,
     launch: (entry) => launched.push(entry),
     show: (target) => shown.push(target),
     inform: (message, tone) => told.push([message, tone]),
@@ -36,10 +37,19 @@ function host(overrides: Partial<CommandHost> = {}) {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('launcher commands', () => {
-  test('every command of the mock registry has a handler of its own', async () => {
+  test('every command of the mock registry the shell hands back to the UI has a handler', async () => {
     const { actions } = await createMockBackend().context();
     const known: readonly string[] = COMMAND_IDS;
-    for (const action of actions) expect(known).toContain(action.id);
+    const ui = actions.filter((action) => action.effect === 'ui' || action.effect === 'ai');
+    expect(ui.map((action) => action.id)).toEqual([
+      'tab',
+      'tools',
+      'settings',
+      'vault',
+      'ask',
+      'help',
+    ]);
+    for (const action of ui) expect(known).toContain(action.id);
   });
 
   test('open launches by id or by the best name match, and says when nothing matches', () => {
@@ -85,6 +95,31 @@ describe('launcher commands', () => {
     ]);
   });
 
+  test('tab switches the apps tab; an unknown source does nothing', () => {
+    const { host: h, shown } = host({ tool: 'settings' });
+    runCommand(h, 'tab', { source: 'portapps' });
+    runCommand(h, 'tab', { source: 'steam' });
+    expect(shown).toEqual([{ kind: 'apps', source: 'portapps' }]);
+  });
+
+  test('tools opens the tools view or the named tool, and closes the one on screen', () => {
+    const closed = host();
+    runCommand(closed.host, 'tools');
+    runCommand(closed.host, 'tools', { tool: 'diagnostics' });
+    runCommand(closed.host, 'tools', { tool: 'nowhere' });
+    expect(closed.shown).toEqual([
+      { kind: 'tool', id: 'settings' },
+      { kind: 'tool', id: 'diagnostics' },
+      { kind: 'tool', id: 'settings' },
+    ]);
+
+    const open = host({ tool: 'diagnostics' });
+    runCommand(open.host, 'tools');
+    runCommand(open.host, 'tools', { tool: 'diagnostics' });
+    runCommand(open.host, 'tools', { tool: 'ai' });
+    expect(open.shown).toEqual([{ kind: 'apps' }, { kind: 'apps' }, { kind: 'tool', id: 'ai' }]);
+  });
+
   test('pin, rescan, folders, launcher files and quit call the shell', async () => {
     const { host: h, backend, told } = host({ pinned: true });
     runCommand(h, 'pin');
@@ -116,5 +151,13 @@ describe('launcher commands', () => {
     runCommand(h, 'pin');
     await flush();
     expect(failed).toEqual([boom]);
+  });
+
+  test('a command the shell hands back to a UI that has no handler says so', async () => {
+    const { host: h, backend, told } = host();
+    backend.runAction.mockImplementation((id) => Promise.resolve({ kind: 'ui', id }));
+    runCommand(h, 'zoom', {});
+    await flush();
+    expect(told).toEqual([['/zoom is not available in this version', 'info']]);
   });
 });

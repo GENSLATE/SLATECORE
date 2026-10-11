@@ -12,6 +12,14 @@ const ACTION_ICON: Readonly<Record<string, CodiconRef>> = {
   help: 'codicon:question',
   theme: 'codicon:color-mode',
   size: 'codicon:screen-full',
+  tab: 'codicon:layers',
+  tools: 'codicon:tools',
+  fav: 'codicon:star-empty',
+  config: 'codicon:go-to-file',
+  keys: 'codicon:record-keys',
+  logs: 'codicon:output',
+  hide: 'codicon:eye-closed',
+  quit: 'codicon:close',
 };
 
 const EFFECT_ICON: Record<Effect, CodiconRef> = {

@@ -29,6 +29,28 @@ export async function loadBoot(backend: LauncherBackend): Promise<Boot> {
 }
 
 /**
+ * The vault as the tray menu window sees it: it has no vault permission and shows no vault, so
+ * it starts from "locked, nothing in it" (as the shell reports a vault it could not open) and
+ * follows `vault://status` events like the launcher window.
+ */
+const VAULT_NOT_READ: VaultStatusDto = {
+  state: 'locked',
+  kdf: null,
+  kdfUpgradePending: false,
+  failedAttempts: 0,
+  retryAfterMs: null,
+  foreignItems: 0,
+  entryCount: null,
+  sessionFiles: 0,
+};
+
+/** `loadBoot` for the tray menu window: context and apps only (no `vault_status` call). */
+export async function loadTrayBoot(backend: LauncherBackend): Promise<Boot> {
+  const [context, list] = await Promise.all([backend.context(), backend.listApps()]);
+  return { backend, context, list, vault: VAULT_NOT_READ };
+}
+
+/**
  * Owns the live launcher state: settings, the app list (refetched when the shell says it
  * changed), the vault state, the pinned flag and the window stage for enter/exit animations.
  */

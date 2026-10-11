@@ -18,18 +18,28 @@ describe('mock backend', () => {
     expect(volume?.availableBytes).toBeLessThan(volume?.totalBytes ?? 0);
   });
 
-  test('the registry holds exactly the launcher slash commands', async () => {
+  test('the registry holds every slash command of the shell, in its order', async () => {
+    // tests/unit/app/rust-registry.test.ts compares it with actions.rs field by field.
     const context = await createMockBackend().context();
     expect(context.actions.map((action) => action.id)).toEqual([
       'open',
+      'folder',
+      'tab',
+      'fav',
+      'rescan',
       'theme',
       'size',
       'pin',
+      'tools',
       'settings',
       'vault',
-      'rescan',
-      'help',
+      'config',
+      'keys',
+      'logs',
       'ask',
+      'help',
+      'hide',
+      'quit',
     ]);
     expect(context.mode).toBe('web');
     expect(context.layout).toEqual({ inset: 16, normalWidth: 460, expandedWidth: 920 });

@@ -149,15 +149,76 @@ const THEME_PARAM = {
   required: true,
 } as const;
 
-/** The launcher's command registry, as `get_context` sends it (slash bar and tray share it). */
+const APP_PARAM = {
+  name: 'app',
+  description: 'App name or id',
+  type: 'app',
+  required: true,
+} as const;
+
+/** A registry action with no parameters. */
+const plain = (
+  id: string,
+  title: string,
+  description: string,
+  effect: ActionSpec['effect'],
+): ActionSpec => ({ id, title, description, params: [], effect });
+
+/** A registry action with one choice parameter. */
+const choice = (
+  spec: Omit<ActionSpec, 'params'>,
+  param: { name: string; description: string; values: readonly string[]; required: boolean },
+): ActionSpec => ({ ...spec, params: [{ ...param, type: 'choice' }] });
+
+/**
+ * The launcher's command registry as `get_context` sends it: a copy of
+ * `crates/launcher-core/src/actions.rs` (ids, order, parameters and effects; a test compares
+ * the two), so the slash menu in a browser is the desktop app's.
+ */
 const ACTIONS: readonly ActionSpec[] = [
   {
     id: 'open',
     title: 'Open app',
     description: 'Launch an app',
-    params: [{ name: 'app', description: 'App name or id', type: 'app', required: true }],
+    params: [APP_PARAM],
     effect: 'launch',
   },
+  choice(
+    {
+      id: 'folder',
+      title: 'Open folder',
+      description: 'Open one of your portable folders',
+      effect: 'open',
+    },
+    {
+      name: 'name',
+      description: 'Folder',
+      values: ['desktop', 'documents', 'downloads', 'music', 'pictures', 'videos', 'storage'],
+      required: true,
+    },
+  ),
+  choice(
+    {
+      id: 'tab',
+      title: 'Switch tab',
+      description: 'Show GENSLATE, portapps.io or PortableApps.com apps',
+      effect: 'ui',
+    },
+    {
+      name: 'source',
+      description: 'Tab',
+      values: ['genslate', 'portapps', 'portableapps'],
+      required: true,
+    },
+  ),
+  {
+    id: 'fav',
+    title: 'Toggle favorite',
+    description: 'Pin an app to Favorites (or unpin it)',
+    params: [APP_PARAM],
+    effect: 'writes-config',
+  },
+  plain('rescan', 'Rescan apps', 'Look for new or removed apps', 'read'),
   {
     id: 'theme',
     title: 'Change theme',
@@ -165,58 +226,38 @@ const ACTIONS: readonly ActionSpec[] = [
     params: [THEME_PARAM],
     effect: 'writes-config',
   },
-  {
-    id: 'size',
-    title: 'Change size',
-    description: 'Small, medium or large window',
-    params: [
-      {
-        name: 'preset',
-        description: 'Size',
-        type: 'choice',
-        values: ['s', 'm', 'l'],
-        required: true,
-      },
-    ],
-    effect: 'writes-config',
-  },
-  {
-    id: 'pin',
-    title: 'Pin / unpin',
-    description: 'Keep the launcher open when it loses focus',
-    params: [],
-    effect: 'window',
-  },
-  {
-    id: 'settings',
-    title: 'Settings',
-    description: 'Open the Settings tool',
-    params: [
-      {
-        name: 'section',
-        description: 'Section',
-        type: 'choice',
-        values: ['appearance', 'behavior', 'keybindings', 'vault', 'about'],
-        required: false,
-      },
-    ],
-    effect: 'ui',
-  },
-  {
-    id: 'vault',
-    title: 'Vault',
-    description: 'Unlock, lock or manage the encrypted vault',
-    params: [],
-    effect: 'ui',
-  },
-  {
-    id: 'rescan',
-    title: 'Rescan apps',
-    description: 'Look for new or removed apps',
-    params: [],
-    effect: 'read',
-  },
-  { id: 'help', title: 'Help', description: 'Shortcuts and commands', params: [], effect: 'ui' },
+  choice(
+    {
+      id: 'size',
+      title: 'Change size',
+      description: 'Small, medium or large window',
+      effect: 'writes-config',
+    },
+    { name: 'preset', description: 'Size', values: ['s', 'm', 'l'], required: true },
+  ),
+  plain('pin', 'Pin / unpin', 'Keep the launcher open when it loses focus', 'window'),
+  choice(
+    { id: 'tools', title: 'Tools', description: 'Open or close the tools view', effect: 'ui' },
+    {
+      name: 'tool',
+      description: 'Tool',
+      values: ['settings', 'manager', 'storage', 'diagnostics', 'ai'],
+      required: false,
+    },
+  ),
+  choice(
+    { id: 'settings', title: 'Settings', description: 'Open the Settings tool', effect: 'ui' },
+    {
+      name: 'section',
+      description: 'Section',
+      values: ['appearance', 'behavior', 'keybindings', 'vault', 'about'],
+      required: false,
+    },
+  ),
+  plain('vault', 'Vault', 'Unlock, lock or manage the encrypted vault', 'ui'),
+  plain('config', 'Edit settings', 'Open settings.toml', 'open'),
+  plain('keys', 'Edit shortcuts', 'Open keybindings.toml', 'open'),
+  plain('logs', 'Open logs', "Open the launcher's log folder", 'open'),
   {
     id: 'ask',
     title: 'Ask AI',
@@ -224,6 +265,9 @@ const ACTIONS: readonly ActionSpec[] = [
     params: [{ name: 'prompt', description: 'Your question', type: 'text', required: false }],
     effect: 'ai',
   },
+  plain('help', 'Help', 'Shortcuts and commands', 'ui'),
+  plain('hide', 'Hide', 'Hide the launcher', 'window'),
+  plain('quit', 'Quit', 'Close the launcher (apps keep running)', 'window'),
 ];
 
 const TAB_LABEL: Record<Source, string> = {

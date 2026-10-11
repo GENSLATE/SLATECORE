@@ -6,14 +6,14 @@ import { StrictMode, Suspense, use } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { AppProviders } from './app/app.providers';
-import { type Boot, LauncherProvider, loadBoot } from './app/launcher.provider';
+import { type Boot, LauncherProvider, loadTrayBoot } from './app/launcher.provider';
 import { TrayMenu } from './features/tray-menu/tray-menu.component';
 import { createBackend } from './ipc/launcher.client';
 import type { TrayMenuAnchor } from './ipc/launcher.types';
 
 /** The tray menu window (`tray-menu.html`): the same backend and state as the launcher. */
 async function boot(): Promise<Boot & { readonly anchor: TrayMenuAnchor | undefined }> {
-  const loaded = await loadBoot(await createBackend());
+  const loaded = await loadTrayBoot(await createBackend());
   // In a browser there is no tray click: open the preview straight away.
   const anchor =
     loaded.context.mode === 'web'

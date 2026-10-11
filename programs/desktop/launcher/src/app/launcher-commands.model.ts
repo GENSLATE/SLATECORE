@@ -7,19 +7,20 @@
  */
 import { searchApps } from '../features/apps/catalog.model';
 import { isSettingsSection, type SettingsSection } from '../features/settings/settings.model';
-import type { ToolId } from '../features/tools/tools.model';
+import { TOOLS, type ToolId } from '../features/tools/tools.model';
 import type { LauncherBackend } from '../ipc/launcher.client';
 import type {
   AppEntry,
   ConfigFile,
   SharedFolder,
   SizePreset,
+  Source,
   ThemeSetting,
 } from '../ipc/launcher.types';
 
 /** Where a command takes the launcher window. */
 export type CommandTarget =
-  | { readonly kind: 'apps' }
+  | { readonly kind: 'apps'; readonly source?: Source }
   | { readonly kind: 'help' }
   | { readonly kind: 'tool'; readonly id: ToolId; readonly section?: SettingsSection };
 
@@ -28,6 +29,8 @@ export interface CommandHost {
   readonly backend: LauncherBackend;
   readonly apps: readonly AppEntry[];
   readonly pinned: boolean;
+  /** The tool on screen, if any (`/tools` closes it); the tray window never shows one. */
+  readonly tool: ToolId | undefined;
   /** Starts an app (the launcher plays its launch pop; the tray just asks the shell). */
   launch(app: AppEntry): void;
   /** Brings the launcher to a view: in place, or by asking the shell to show it there. */
@@ -44,15 +47,18 @@ export type CommandParams = Readonly<Record<string, string>>;
  * The ids this window runs itself. Every id but `show` is an id of the shell's registry
  * (`crates/launcher-core/src/actions.rs`) and reads that registry's parameter names, so the
  * slash bar, the tray rows and the shell all mean the same thing by it. `show` is tray-only.
- * Registry ids missing here (`tab`, `fav`, `tools`, `hide`) go to the shell.
+ * Every `ui` and `ai` action is here: the shell's `run_action` only hands those back to the UI.
+ * The registry ids missing here (`fav`, `hide`) are done by the shell.
  */
 export const COMMAND_IDS = [
   'open',
   'folder',
+  'tab',
   'rescan',
   'theme',
   'size',
   'pin',
+  'tools',
   'settings',
   'vault',
   'config',
@@ -75,6 +81,8 @@ const THEMES: Readonly<Record<string, ThemeSetting>> = {
   'snow-storm': 'snow-storm',
 };
 const SIZES: readonly SizePreset[] = ['s', 'm', 'l'];
+const SOURCES: readonly Source[] = ['genslate', 'portapps', 'portableapps'];
+const TOOL_IDS: readonly ToolId[] = TOOLS.map((tool) => tool.id);
 const FOLDERS: readonly SharedFolder[] = [
   'desktop',
   'documents',
@@ -117,6 +125,19 @@ const HANDLERS: Readonly<Record<CommandId, Handler>> = {
       section: isSettingsSection(section) ? section : 'appearance',
     }),
   vault: (host) => host.show({ kind: 'tool', id: 'settings', section: 'vault' }),
+  tab: (host, { source }) => {
+    const tab = pick(SOURCES, source);
+    if (tab !== undefined) host.show({ kind: 'apps', source: tab });
+  },
+  // `/tools` opens the tools view (on Settings) or closes it; `/tools <tool>` opens that tool,
+  // or closes it when it is the one on screen.
+  tools: (host, { tool }) => {
+    const wanted = pick(TOOL_IDS, tool);
+    const open = host.tool;
+    if (open !== undefined && (wanted === undefined || wanted === open))
+      host.show({ kind: 'apps' });
+    else host.show({ kind: 'tool', id: wanted ?? 'settings' });
+  },
   rescan: (host) => {
     host.backend.rescan().then(() => host.inform('Apps rescanned', 'success'), host.fail);
   },
@@ -139,14 +160,18 @@ function isCommandId(id: string): id is CommandId {
   return COMMAND_IDS.some((known) => known === id);
 }
 
-/** Runs command `id`; an id the launcher has no handler for goes to the shell (`run_action`). */
+/**
+ * Runs command `id`; an id the launcher has no handler for goes to the shell (`run_action`).
+ * If the shell hands it back (`{ kind: 'ui' }`: a UI action this build does not know), the
+ * user hears so instead of nothing happening.
+ */
 export function runCommand(host: CommandHost, id: string, params: CommandParams = {}): void {
   if (isCommandId(id)) {
     HANDLERS[id](host, params);
     return;
   }
   host.backend.runAction(id, params).then((outcome) => {
-    if (outcome.kind === 'done' && outcome.message !== null)
-      host.inform(outcome.message, 'success');
+    if (outcome.kind === 'ui') host.inform(`/${id} is not available in this version`, 'info');
+    else if (outcome.message !== null) host.inform(outcome.message, 'success');
   }, host.fail);
 }

@@ -180,6 +180,26 @@ describe('launcher frame', () => {
     expect(backend.launch).toHaveBeenCalledWith('portableapps/FirefoxPortable', undefined);
   });
 
+  test('/tab switches the source tab and /tools opens and closes the tools', async () => {
+    const { backend, user } = await renderLauncher();
+    const search = screen.getByRole('combobox', { name: /Search apps/ });
+    await user.type(search, '/tab portapps{Enter}');
+    expect(screen.getByRole('tab', { name: /^portapps\.io/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    await user.type(search, '/tools{Enter}');
+    expect(screen.getByRole('region', { name: 'Settings' })).toBeInTheDocument();
+    await user.type(search, '/tools diagnostics{Enter}');
+    expect(screen.queryByRole('region', { name: 'Settings' })).toBeNull();
+    expect(frame()).toHaveAttribute('data-expanded');
+    expect(screen.getAllByRole('heading', { name: 'Diagnostics' }).length).toBeGreaterThan(0);
+    await user.type(search, '/tools{Enter}');
+    expect(frame()).not.toHaveAttribute('data-expanded');
+    expect(backend.runAction).not.toHaveBeenCalled();
+  });
+
   test('document_title_is_slatecore_launcher', async () => {
     const html = await Bun.file(new URL('../../../index.html', import.meta.url)).text();
     expect(html).toContain('<title>SLATECORE LAUNCHER</title>');

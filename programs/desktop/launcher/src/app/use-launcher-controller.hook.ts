@@ -208,10 +208,12 @@ export function useLauncherController() {
     backend,
     apps: list.apps,
     pinned,
+    tool: view.kind === 'tool' ? view.id : undefined,
     launch: (app) => launch(app),
     show: (target) => {
       if (target.kind === 'tool') openTool(target.id, target.section);
       else if (target.kind === 'help') setViewState({ kind: 'help' });
+      else if (target.source !== undefined) changeTab(target.source);
       else setView(APPS);
     },
     inform: (message, tone) => toast.add({ title: message, type: tone }),
