@@ -242,8 +242,9 @@ fn open_vault(paths: &AppPaths) -> VaultSlot {
             VaultSlot::Ready(Arc::new(service))
         }
         Err(error) => {
-            log::warn!("the vault is unavailable: {error}");
-            VaultSlot::Unavailable(VaultErrorDto::from(error))
+            let dto = VaultErrorDto::from(error);
+            log::warn!("the vault is unavailable: {}", dto.code);
+            VaultSlot::Unavailable(dto)
         }
     }
 }
@@ -306,7 +307,10 @@ fn lock_vault_for_exit<R: Runtime>(app: &tauri::AppHandle<R>) {
             "the vault did not lock within {EXIT_SAVE_BOUND:?}; exiting, the next start wipes \
              the decrypted files"
         ),
-        ExitLock::Failed(error) => log::warn!("the vault could not lock on exit: {error}"),
+        ExitLock::Failed(error) => log::warn!(
+            "the vault could not lock on exit: {}",
+            VaultErrorDto::from(&error).code
+        ),
     }
 }
 

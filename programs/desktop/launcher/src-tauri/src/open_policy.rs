@@ -7,11 +7,16 @@
 //! the Task 12 fix round). The file can still be exported to a folder and handled from there,
 //! where the person is in charge.
 //!
+//! Macro-enabled Office files (`docm`, `xlsm`, `pptm`) are deliberately *not* blocked: their
+//! program asks before it runs a macro. What the vault round trip does cost them is Protected
+//! View, which Office applies only to files that carry the Mark-of-the-Web, and an import drops
+//! it. The UI warning about opening files from the vault should say so.
+//!
 //! The check is on the *name*, the way Windows reads it: case does not matter, trailing dots and
 //! spaces are dropped (`evil.exe.` is `evil.exe`), only the last extension counts
 //! (`report.pdf.exe` is an `exe`) and a name that is only an extension (`.exe`) still has it.
 
-// cspell:ignore appref appxbundle diagcab msix msixbundle rsplit settingcontent themepack xbap
+// cspell:ignore appinstaller dotm fullwidth jnlp pyzw searchconnector vhdx appref appxbundle diagcab msix msixbundle rsplit settingcontent themepack xbap
 
 /// Extensions (lower case, no dot) of files that run code, install it or point at it when they
 /// are opened. Broader than "executable": scripts, shortcuts, registry and policy files.
@@ -75,6 +80,31 @@ const BLOCKED: &[&str] = &[
     "inf",
     "theme",
     "themepack",
+    // Help files that run script, interpreter scripts, update packages and add-ins.
+    "chm",
+    "py",
+    "pyw",
+    "pyz",
+    "pyzw",
+    "msu",
+    "cab",
+    "appinstaller",
+    "jnlp",
+    "vsix",
+    "searchconnector-ms",
+    // Office and Access add-ins and compiled databases (code in the file, no macro prompt).
+    "xll",
+    "xlam",
+    "ppam",
+    "mde",
+    "accde",
+    "ade",
+    "adp",
+    // Disk images Explorer mounts as a drive.
+    "iso",
+    "img",
+    "vhd",
+    "vhdx",
 ];
 
 /// The file name of `path`, a vault path (`Docs/a.txt`) or a Windows path, without the folders.
@@ -95,6 +125,11 @@ pub fn is_blocked_type(path: &str) -> bool {
     let Some((_, extension)) = name.rsplit_once('.') else {
         return false;
     };
+    // Anything outside ASCII (a Cyrillic `e` in `exe`, a right-to-left override) is not a type
+    // this list can vouch for.
+    if !extension.is_ascii() {
+        return true;
+    }
     BLOCKED
         .iter()
         .any(|blocked| blocked.eq_ignore_ascii_case(extension))
@@ -190,6 +225,65 @@ mod tests {
     fn a_stream_suffix_is_blocked_as_well() {
         assert!(is_blocked_type("note.txt:evil.exe"));
         assert!(is_blocked_type("setup.exe:Zone.Identifier"));
+    }
+
+    #[test]
+    fn the_second_round_of_types_is_blocked() {
+        for ext in [
+            "chm",
+            "py",
+            "pyw",
+            "pyz",
+            "pyzw",
+            "msu",
+            "xll",
+            "xlam",
+            "ppam",
+            "mde",
+            "accde",
+            "ade",
+            "adp",
+            "cab",
+            "appinstaller",
+            "jnlp",
+            "vsix",
+            "searchconnector-ms",
+            "iso",
+            "img",
+            "vhd",
+            "vhdx",
+        ] {
+            assert!(is_blocked_type(&format!("file.{ext}")), "{ext}");
+            assert!(
+                is_blocked_type(&format!("FILE.{}", ext.to_uppercase())),
+                "{ext}"
+            );
+        }
+    }
+
+    #[test]
+    fn macro_office_files_stay_openable() {
+        // Their program shows its own warning, and Protected View is lost by the import (see the
+        // module docs), which is why this is a documented choice and not an oversight.
+        for name in ["budget.xlsm", "letter.docm", "slides.pptm", "tpl.dotm"] {
+            assert!(!is_blocked_type(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn an_extension_with_a_non_ascii_character_is_refused() {
+        for name in [
+            "report.\u{435}xe", // Cyrillic e
+            "report.ex\u{435}",
+            "note.t\u{ff58}t", // fullwidth x
+            "photo.jp\u{e9}g",
+            "a.\u{202e}txt", // right-to-left override
+        ] {
+            assert!(is_blocked_type(name), "{name:?}");
+        }
+        // A non-ASCII *name* is fine.
+        assert!(!is_blocked_type("r\u{e9}sum\u{e9}.pdf"));
+        assert!(!is_blocked_type("\u{65e5}\u{672c}\u{8a9e}.txt"));
     }
 
     #[test]

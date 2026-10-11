@@ -35,7 +35,7 @@ use crate::auto_lock::{BlockedNotifier, Timeouts};
 use crate::events;
 use crate::open_policy;
 use crate::os_open;
-use crate::reload::emit;
+use crate::reload::emit_main;
 use crate::state::{Launcher, VaultSlot};
 use crate::vault_dto::{
     ConflictDto, EntryDto, LockBlockedDto, LockReportDto, OpenedDto, VaultErrorDto, VaultStatusDto,
@@ -73,7 +73,7 @@ where
 /// Tells the UI the vault's state, whatever the last call did.
 fn emit_status(app: &AppHandle) {
     if let Some(service) = app.state::<Launcher>().vault_service() {
-        emit(app, events::VAULT_STATUS, service.status());
+        emit_main(app, events::VAULT_STATUS, service.status());
     }
 }
 
@@ -156,12 +156,20 @@ pub async fn vault_open(app: AppHandle, path: String) -> CommandResult<OpenedDto
     if open_policy::is_blocked_type(&path) {
         return Err(VaultErrorDto::blocked_type());
     }
-    let (file, opened) = blocking_then_status(&app, move |service| {
+    let (file, blocked, opened) = blocking_then_status(&app, move |service| {
         let file = service.open_entry(&path)?;
-        let opened = os_open::open_path(&file.absolute).is_ok();
-        Ok((file, opened))
+        // Once more on the name of the file that is really about to be opened.
+        let blocked = file
+            .absolute
+            .file_name()
+            .is_some_and(|name| open_policy::is_blocked_type(&name.to_string_lossy()));
+        let opened = !blocked && os_open::open_path(&file.absolute).is_ok();
+        Ok((file, blocked, opened))
     })
     .await?;
+    if blocked {
+        return Err(VaultErrorDto::blocked_type());
+    }
     if !opened {
         return Err(VaultErrorDto::open_failed());
     }
@@ -180,8 +188,8 @@ pub fn spawn_background(app: AppHandle) {
     let spawned = thread::Builder::new()
         .name("vault-auto_lock".to_owned())
         .spawn(move || background(&app));
-    if let Err(error) = spawned {
-        log::error!("the vault timer thread failed to start: {error}");
+    if let Err(failure) = spawned {
+        log::error!("the vault timer thread failed to start: {failure}");
     }
 }
 
@@ -209,18 +217,19 @@ fn background(app: &AppHandle) {
                     "the vault locked itself ({reason:?}); {} session files wiped",
                     report.wiped_files
                 );
-                emit(app, events::VAULT_STATUS, service.status());
+                emit_main(app, events::VAULT_STATUS, service.status());
             }
             Tick::Blocked(reason, error) => {
                 let notice = LockBlockedDto::new(reason, &error);
                 if blocked.blocked(reason, &notice.cause()) {
+                    // The code only: the message can name vault entries.
                     log::warn!(
                         "the vault could not lock itself ({reason:?}): {}; still unlocked, \
                          retrying",
-                        notice.error.message
+                        notice.error.code
                     );
-                    emit(app, events::VAULT_LOCK_BLOCKED, notice);
-                    emit(app, events::VAULT_STATUS, service.status());
+                    emit_main(app, events::VAULT_LOCK_BLOCKED, notice);
+                    emit_main(app, events::VAULT_STATUS, service.status());
                 }
             }
         }
@@ -242,10 +251,14 @@ fn sync(app: &AppHandle, service: &VaultService) {
                 );
             }
             if !report.updated.is_empty() || !report.imported_new.is_empty() {
-                emit(app, events::VAULT_STATUS, service.status());
+                emit_main(app, events::VAULT_STATUS, service.status());
             }
         }
-        Some(Err(error)) => log::warn!("saving opened vault files failed: {error}"),
+        // The code only: a vault error's text can name vault entries.
+        Some(Err(error)) => log::warn!(
+            "saving opened vault files failed: {}",
+            VaultErrorDto::from(&error).code
+        ),
     }
 }
 

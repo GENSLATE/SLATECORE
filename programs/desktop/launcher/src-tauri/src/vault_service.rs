@@ -100,8 +100,8 @@ where
 {
     match run_bounded(bound, attempt) {
         Bounded::Done(Ok(report)) => ExitLock::Locked(report),
-        // Locked by someone else in the meantime: nothing left to do.
-        Bounded::Done(Err(VaultError::Locked)) => ExitLock::NotUnlocked,
+        // Not unlocked (locked already, or never created): nothing to do.
+        Bounded::Done(Err(VaultError::Locked | VaultError::Uninitialized)) => ExitLock::NotUnlocked,
         Bounded::TimedOut => ExitLock::TimedOut,
         Bounded::Done(Err(_)) | Bounded::NotStarted => match force() {
             Ok(report) => ExitLock::Forced(report),
@@ -347,9 +347,9 @@ impl VaultService {
     /// and wipe; a failed attempt is followed by a forced lock, a stuck one is left alone (see
     /// [`ExitLock`]).
     pub fn lock_for_exit(&self, bound: Duration) -> ExitLock {
-        if self.vault.status().state != VaultState::Unlocked {
-            return ExitLock::NotUnlocked;
-        }
+        // No question to the vault here: its state lock can be held by a commit writing the
+        // index, and nothing on the calling thread may wait for it. A vault that is not unlocked
+        // answers the attempt with `Locked` or `Uninitialized`, which is `NotUnlocked`.
         let attempt = Arc::clone(&self.vault);
         let force = Arc::clone(&self.vault);
         exit_lock_with(
@@ -636,6 +636,55 @@ mod tests {
             "the exit waited {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn a_vault_that_is_not_unlocked_at_exit_is_nothing_to_do_and_never_forced() {
+        for error in [VaultError::Locked, VaultError::Uninitialized] {
+            let forced = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&forced);
+            let outcome = exit_lock_with(
+                Duration::from_secs(5),
+                move || Err(error),
+                move || {
+                    flag.store(true, Ordering::SeqCst);
+                    Ok(report())
+                },
+            );
+            assert!(matches!(outcome, ExitLock::NotUnlocked), "{outcome:?}");
+            assert!(!forced.load(Ordering::SeqCst));
+        }
+    }
+
+    #[test]
+    fn exit_does_not_ask_the_vault_anything_on_the_calling_thread() -> TestResult {
+        // The state check used to run on the calling thread and takes the vault's state lock,
+        // which a commit holds across its index write. The whole decision is now inside the
+        // bounded attempt: a locked vault and a never-created one both answer NotUnlocked.
+        let tmp = TempTree::new()?;
+        let paths = paths_in(&tmp)?;
+        let (service, _) = VaultService::open(&paths)?;
+        assert!(matches!(
+            service.lock_for_exit(Duration::from_secs(1)),
+            ExitLock::NotUnlocked
+        ));
+        service.create(&SecretString::from("correct horse battery"))?;
+        service.lock(false)?;
+        assert!(matches!(
+            service.lock_for_exit(Duration::from_secs(1)),
+            ExitLock::NotUnlocked
+        ));
+        let source = include_str!("vault_service.rs");
+        let body = source
+            .split("pub fn lock_for_exit")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    }\n").next())
+            .ok_or("no lock_for_exit")?;
+        assert!(
+            !body.contains("status()"),
+            "lock_for_exit must not call status()"
+        );
+        Ok(())
     }
 
     #[test]

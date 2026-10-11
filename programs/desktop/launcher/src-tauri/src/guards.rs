@@ -504,6 +504,32 @@ fn the_csp_shuts_the_doors_the_ui_does_not_use() -> TestResult {
 }
 
 #[test]
+fn vault_events_go_to_the_launcher_window_only_and_logs_name_no_vault_entries() -> TestResult {
+    let commands = read("src/vault_commands.rs")?;
+    assert!(
+        !commands.contains("reload::emit;") && !commands.contains(" emit(app"),
+        "vault events are sent with emit_main, never broadcast"
+    );
+    assert!(commands.contains("emit_main(app, events::VAULT_LOCK_BLOCKED"));
+    // A vault error's text can name an entry (NotFound, Exists): logs carry its code only.
+    for relative in ["src/vault_commands.rs", "src/vault_service.rs"] {
+        for line in read(relative)?
+            .lines()
+            .filter(|line| line.contains("log::"))
+        {
+            assert!(
+                !line.contains("{error}") && !line.contains(".message"),
+                "{relative} logs a vault error text: {line}"
+            );
+        }
+    }
+    let lib = read("src/lib.rs")?;
+    assert!(!lib.contains("the vault is unavailable: {error}"));
+    assert!(!lib.contains("lock on exit: {error}"));
+    Ok(())
+}
+
+#[test]
 fn the_icon_scheme_answers_nosniff() -> TestResult {
     assert!(read("src/icons.rs")?.contains("X_CONTENT_TYPE_OPTIONS"));
     Ok(())

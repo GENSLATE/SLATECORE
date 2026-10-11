@@ -2,8 +2,10 @@
 //! else: a link, a redirect or a script that tries to load another page (or open a new window)
 //! is refused, so the webview with its IPC access never shows foreign content.
 //!
-//! Tauri serves the bundled UI on Windows from `http://tauri.localhost/` (`https` when the window
-//! is configured for it); `tauri dev` serves it from the Vite dev server on port 1420.
+//! Tauri serves the bundled UI on Windows from `http://tauri.localhost/` on the default port. The
+//! `https` variant exists only for windows built with `use_https_scheme(true)`; every window here
+//! is built by `window::portable_builder`, which does not set it, so `https` is refused.
+//! `tauri dev` serves the UI from the Vite dev server on port 1420.
 
 /// The Vite dev server's port (`tauri.conf.json` `build.devUrl`).
 pub const DEV_PORT: u16 = 1420;
@@ -13,7 +15,7 @@ pub const DEV_PORT: u16 = 1420;
 pub fn is_allowed(scheme: &str, host: Option<&str>, port: Option<u16>, dev: bool) -> bool {
     match (scheme, host) {
         ("about", None) => true,
-        ("http" | "https", Some(host)) if host.eq_ignore_ascii_case("tauri.localhost") => true,
+        ("http", Some(host)) if host.eq_ignore_ascii_case("tauri.localhost") => port.is_none(),
         ("http", Some(host)) => {
             dev && host.eq_ignore_ascii_case("localhost") && port == Some(DEV_PORT)
         }
@@ -28,8 +30,29 @@ mod tests {
     #[test]
     fn the_apps_own_origin_is_allowed() {
         assert!(is_allowed("http", Some("tauri.localhost"), None, false));
-        assert!(is_allowed("https", Some("tauri.localhost"), None, false));
         assert!(is_allowed("http", Some("TAURI.localhost"), None, false));
+    }
+
+    #[test]
+    fn the_app_origin_is_http_on_the_default_port_only() {
+        // The windows are built in code with Tauri's default `http` scheme on Windows, so the
+        // https variant is not the app and is refused, as is any explicit port.
+        for dev in [false, true] {
+            assert!(!is_allowed("https", Some("tauri.localhost"), None, dev));
+            assert!(!is_allowed(
+                "https",
+                Some("tauri.localhost"),
+                Some(443),
+                dev
+            ));
+            assert!(!is_allowed(
+                "http",
+                Some("tauri.localhost"),
+                Some(8080),
+                dev
+            ));
+            assert!(!is_allowed("http", Some("tauri.localhost"), Some(80), dev));
+        }
     }
 
     #[test]

@@ -98,3 +98,14 @@ pub fn emit<R: Runtime, S: Serialize + Clone>(app: &AppHandle<R>, event: &str, p
         log::debug!("emit {event}: {error}");
     }
 }
+
+/// Emits an event to the launcher window only. Vault events go this way: they can carry the names
+/// of decrypted files, which the tray menu window has no business with. Tauri still hands an
+/// event to a listener registered with the "any" target in another webview, so this narrows the
+/// delivery rather than being a security boundary: the tray page registers no vault listener and
+/// holds no vault command (a guard checks the capability).
+pub fn emit_main<R: Runtime, S: Serialize + Clone>(app: &AppHandle<R>, event: &str, payload: S) {
+    if let Err(error) = app.emit_to(window::MAIN, event, payload) {
+        log::debug!("emit {event} to the launcher: {error}");
+    }
+}
