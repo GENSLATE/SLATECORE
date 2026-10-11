@@ -16,6 +16,61 @@ pub enum LockReason {
     Hidden,
 }
 
+impl LockReason {
+    /// The word the UI gets (`idle` or `hidden`).
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Hidden => "hidden",
+        }
+    }
+}
+
+/// How many ticks (5 s each) pass before a lock that stays blocked is announced again.
+pub const REPEAT_BLOCKED_AFTER_TICKS: u32 = 12;
+
+/// Decides when the UI is told that an automatic lock is blocked (an edited file in the session
+/// folder cannot be saved back, so the vault stays unlocked and its plaintext stays on disk).
+///
+/// The lock is retried every tick, but the UI hears of it when the block *starts*, when its
+/// cause changes (another file, another reason) and then once every
+/// [`REPEAT_BLOCKED_AFTER_TICKS`] ticks, so a window opened later learns of it without the
+/// event channel being flooded every five seconds.
+#[derive(Debug, Clone, Default)]
+pub struct BlockedNotifier {
+    last: Option<(LockReason, String)>,
+    quiet_ticks: u32,
+}
+
+impl BlockedNotifier {
+    /// A tick found the lock blocked for `reason` because of `cause` (a stable description of
+    /// it). `true` when the UI should be told now.
+    pub fn blocked(&mut self, reason: LockReason, cause: &str) -> bool {
+        let same = self
+            .last
+            .as_ref()
+            .is_some_and(|(last, text)| *last == reason && text == cause);
+        if !same {
+            self.last = Some((reason, cause.to_owned()));
+            self.quiet_ticks = 0;
+            return true;
+        }
+        self.quiet_ticks += 1;
+        if self.quiet_ticks >= REPEAT_BLOCKED_AFTER_TICKS {
+            self.quiet_ticks = 0;
+            return true;
+        }
+        false
+    }
+
+    /// A tick that was not blocked (the vault locked, or there was nothing to do): the next block
+    /// is a new one.
+    pub fn clear(&mut self) {
+        self.last = None;
+        self.quiet_ticks = 0;
+    }
+}
+
 /// The two timeouts; `None` = never.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timeouts {
@@ -177,5 +232,56 @@ mod tests {
             lock.due(start + minutes(11), no_hide),
             Some(LockReason::Idle)
         );
+    }
+
+    #[test]
+    fn a_blocked_lock_is_announced_at_once_then_once_a_minute() {
+        let mut notifier = BlockedNotifier::default();
+        assert!(
+            notifier.blocked(LockReason::Idle, "a.txt"),
+            "the first tick"
+        );
+        for tick in 1..REPEAT_BLOCKED_AFTER_TICKS {
+            assert!(
+                !notifier.blocked(LockReason::Idle, "a.txt"),
+                "tick {tick} is quiet"
+            );
+        }
+        assert!(
+            notifier.blocked(LockReason::Idle, "a.txt"),
+            "announced again after a minute"
+        );
+        assert!(!notifier.blocked(LockReason::Idle, "a.txt"));
+    }
+
+    #[test]
+    fn a_new_cause_or_reason_is_announced_at_once() {
+        let mut notifier = BlockedNotifier::default();
+        assert!(notifier.blocked(LockReason::Idle, "a.txt"));
+        assert!(!notifier.blocked(LockReason::Idle, "a.txt"));
+        assert!(
+            notifier.blocked(LockReason::Idle, "a.txt,b.txt"),
+            "another file"
+        );
+        assert!(
+            notifier.blocked(LockReason::Hidden, "a.txt,b.txt"),
+            "another reason"
+        );
+        assert!(!notifier.blocked(LockReason::Hidden, "a.txt,b.txt"));
+    }
+
+    #[test]
+    fn once_the_vault_locks_the_next_block_is_a_new_one() {
+        let mut notifier = BlockedNotifier::default();
+        assert!(notifier.blocked(LockReason::Idle, "a.txt"));
+        assert!(!notifier.blocked(LockReason::Idle, "a.txt"));
+        notifier.clear();
+        assert!(notifier.blocked(LockReason::Idle, "a.txt"));
+    }
+
+    #[test]
+    fn the_reasons_use_the_words_the_ui_gets() {
+        assert_eq!(LockReason::Idle.as_str(), "idle");
+        assert_eq!(LockReason::Hidden.as_str(), "hidden");
     }
 }

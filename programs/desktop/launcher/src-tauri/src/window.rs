@@ -26,9 +26,13 @@ use tauri::{
     WebviewWindow, WebviewWindowBuilder,
 };
 
+use tauri::webview::NewWindowResponse;
+
 use crate::brand::WINDOW_TITLE;
+use crate::debounce::{ToggleAction, ToggleState, decide_toggle};
 use crate::error::AppError;
 use crate::events;
+use crate::navigation;
 use crate::placement::{self, MonitorInfo};
 use crate::state::{FrameGeometry, Launcher};
 
@@ -43,7 +47,8 @@ const TRANSPARENT: Color = Color(0, 0, 0, 0);
 /// A window builder with everything the leave-no-trace contract needs, shared by every window:
 /// the webview's data folder is inside installDir (and is the same for every window), the
 /// webview is incognito, there is no shadow and no taskbar button, and the window is frameless,
-/// transparent, fixed in size and hidden until placed.
+/// transparent, fixed in size and hidden until placed. Every window may show only the app's own
+/// pages: other navigations are refused and no window can open another ([`navigation`]).
 pub fn portable_builder<'a, R: Runtime>(
     app: &'a AppHandle<R>,
     label: &str,
@@ -62,6 +67,22 @@ pub fn portable_builder<'a, R: Runtime>(
         .minimizable(false)
         .visible(false)
         .background_color(TRANSPARENT)
+        .on_navigation(|url| {
+            let allowed = navigation::is_allowed(
+                url.scheme(),
+                url.host_str(),
+                url.port(),
+                cfg!(debug_assertions),
+            );
+            if !allowed {
+                log::warn!("a window tried to navigate to a page that is not the app's");
+            }
+            allowed
+        })
+        .on_new_window(|_url, _features| {
+            log::warn!("a window tried to open a new window");
+            NewWindowResponse::Deny
+        })
 }
 
 /// Creates the (hidden) launcher window.
@@ -134,6 +155,20 @@ fn place<R: Runtime>(window: &WebviewWindow<R>, target: Rect) -> tauri::Result<(
     window.set_position(position)
 }
 
+/// [`place`], then a look at the size the window really has: moving a window to a monitor with
+/// another scale factor can make Windows rescale it on arrival, after our `set_size`, and the
+/// first pass then leaves it at the wrong size. When the size is off, place it once more (the
+/// window now lives on the target monitor, so the same physical size sticks). Done before the
+/// window is shown, so nobody sees the correction. UNVERIFIED on a mixed-DPI setup.
+pub fn place_settled<R: Runtime>(window: &WebviewWindow<R>, target: Rect) -> tauri::Result<()> {
+    place(window, target)?;
+    let size = window.outer_size()?;
+    if !placement::size_settled((size.width, size.height), target) {
+        place(window, target)?;
+    }
+    Ok(())
+}
+
 /// Places the window on the monitor under the cursor, shows and focuses it, then tells the UI to
 /// play its entrance on the apps list.
 pub fn show<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
@@ -150,7 +185,7 @@ pub fn show_view<R: Runtime>(app: &AppHandle<R>, view: ShowView) -> Result<(), A
         .map_or((0.0, 0.0), |position| (position.x, position.y));
     let target = placement::target_rect(&monitors(app)?, cursor, geometry::window_size(size));
     if let Some((target, scale)) = target {
-        place(&window, target)?;
+        place_settled(&window, target)?;
         launcher.window().geometry = Some(FrameGeometry {
             window: target,
             scale,
@@ -196,26 +231,31 @@ pub fn hide<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Tray click or global hotkey: hide when visible and focused, otherwise show. A toggle right
-/// after a hide is the second half of the click that hid the window (the click blurred it), so
-/// it does nothing.
+/// Tray click or global hotkey: hide when visible and focused (or when this very click took the
+/// focus away from a launcher a blur does not hide), otherwise show. A toggle right after a hide
+/// is the second half of the click that hid the window (the click blurred it), so it does
+/// nothing. The decision itself is [`decide_toggle`].
 pub fn toggle<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
     let launcher = app.state::<Launcher>();
-    let (visible, just_hidden) = {
+    let now = Instant::now();
+    let (visible, just_hidden, just_blurred) = {
         let flags = launcher.window();
         (
             flags.visible,
-            flags.recent_hide.blocks_toggle(Instant::now()),
+            flags.recent_hide.blocks_toggle(now),
+            flags.recent_blur.is_recent(now),
         )
     };
-    if just_hidden {
-        return Ok(());
-    }
     let focused = main_window(app)?.is_focused().unwrap_or(false);
-    if visible && focused {
-        hide(app)
-    } else {
-        show(app)
+    match decide_toggle(ToggleState {
+        visible,
+        focused,
+        just_hidden,
+        just_blurred,
+    }) {
+        ToggleAction::Nothing => Ok(()),
+        ToggleAction::Hide => hide(app),
+        ToggleAction::Show => show(app),
     }
 }
 
@@ -227,11 +267,14 @@ pub fn set_pinned<R: Runtime>(app: &AppHandle<R>, pinned: bool) -> Result<(), Ap
     Ok(())
 }
 
-/// Resizes for a new height preset (the width never changes).
+/// Resizes for a new height preset (the width never changes). A visible window is placed again
+/// in its corner of the monitor it is on, at the new size, and nothing else happens: no
+/// `launcher://shown` event, so the UI keeps the view it is showing (Settings, usually, since
+/// the size is changed there).
 pub fn apply_size<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
     let launcher = app.state::<Launcher>();
     if launcher.is_visible() {
-        show(app)
+        snap_back(app, &launcher)
     } else {
         let (width, height) = geometry::window_size(launcher.settings().config.appearance.size);
         main_window(app)?.set_size(tauri::LogicalSize::new(width, height))?;
@@ -242,6 +285,9 @@ pub fn apply_size<R: Runtime>(app: &AppHandle<R>) -> Result<(), AppError> {
 /// Hides on focus loss unless pinned or turned off in `settings.toml`.
 pub fn on_blur<R: Runtime>(app: &AppHandle<R>) {
     let launcher = app.state::<Launcher>();
+    // Always, hidden or not: a tray click that follows means "hide" for a launcher a blur leaves
+    // on screen.
+    launcher.window().recent_blur.mark(Instant::now());
     let pinned = launcher.window().pinned;
     let enabled = launcher.settings().config.behavior.hide_on_blur;
     if !pinned
@@ -272,7 +318,7 @@ fn snap_back<R: Runtime>(app: &AppHandle<R>, launcher: &Launcher) -> Result<(), 
     let corner = placement::snap_back(actual, &monitors(app)?, geometry::window_size(size));
     let frame = match corner {
         Some((target, scale)) => {
-            place(&window, target)?;
+            place_settled(&window, target)?;
             FrameGeometry {
                 window: target,
                 scale,

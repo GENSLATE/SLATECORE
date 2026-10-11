@@ -65,6 +65,17 @@ pub fn snap_back(
     moved.then_some((wanted, scale))
 }
 
+/// Whether the window, now `actual` (width, height) in physical pixels, has the size `wanted`.
+///
+/// A window moved to a monitor with another scale factor adopts that monitor's DPI and Windows
+/// may rescale its size on the way, so a `set_size` made before the move settles can come out
+/// wrong. The shell places the window, reads the size back and places it once more when this says
+/// no, before the window is shown.
+pub fn size_settled(actual: (u32, u32), wanted: Rect) -> bool {
+    let close = |a: u32, b: u32| (i64::from(a) - i64::from(b)).abs() <= TOLERANCE;
+    close(actual.0, wanted.width) && close(actual.1, wanted.height)
+}
+
 /// Whether `cursor` is over the visible frame of the window at `window` (the rest of the window
 /// is transparent and lets clicks through).
 pub fn cursor_in_frame(window: Rect, scale: f64, expanded: bool, cursor: (f64, f64)) -> bool {
@@ -182,6 +193,44 @@ mod tests {
         let resized = rect(home.x, home.y, home.width + 40, home.height);
         let fixed = snap_back(resized, &monitors, logical()).map(|(r, _)| r.width);
         assert_eq!(fixed, Some(home.width));
+        Ok(())
+    }
+
+    #[test]
+    fn a_new_height_preset_re_anchors_in_the_same_corner_on_the_same_monitor() -> TestResult {
+        let monitors = two_monitors();
+        // Shown on the 200 percent monitor at size M ...
+        let (home, scale) = place(&monitors, (4000.0, 500.0))?;
+        assert!(is(scale, 2.0));
+        // ... then the preset becomes L: the window is moved and resized in place, on the same
+        // monitor, to the bottom-right corner of its work area.
+        let large = geometry::window_size(SizePreset::L);
+        let (grown, grown_scale) = snap_back(home, &monitors, large).ok_or("did not re-anchor")?;
+        assert!(is(grown_scale, 2.0), "still the second monitor");
+        assert!(grown.height > home.height);
+        assert_eq!(grown.width, home.width, "the width never changes");
+        assert_eq!(
+            (
+                grown.x + i32::try_from(grown.width)?,
+                grown.y + i32::try_from(grown.height)?
+            ),
+            (5760, 2064),
+            "bottom-right of that monitor's work area"
+        );
+        // Placing it there again is a no-op: no loop of Moved events.
+        assert_eq!(snap_back(grown, &monitors, large), None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_size_that_did_not_settle_is_detected_within_one_pixel() -> TestResult {
+        let monitors = two_monitors();
+        let (target, _) = place(&monitors, (4000.0, 500.0))?;
+        assert!(size_settled((target.width, target.height), target));
+        assert!(size_settled((target.width + 1, target.height - 1), target));
+        // Moved from a 100 percent monitor: the size is still the old monitor's pixels.
+        assert!(!size_settled((952, 672), target));
+        assert!(!size_settled((target.width, target.height + 2), target));
         Ok(())
     }
 

@@ -7,7 +7,9 @@
 //!    `TEMP`, `TMP` and the `WebView2` variables into installDir (`env_bootstrap`, the one
 //!    `unsafe` block of the workspace);
 //! 3. build the app with the single-instance plugin first, a per-drive identity and every
-//!    Tauri directory inside installDir;
+//!    Tauri directory inside installDir. The plugin makes a second launch on the same drive exit
+//!    inside `Builder::build`, but it can only show the first launcher's window once that window
+//!    exists: a second launch during the first one's start-up exits silently and shows nothing;
 //! 4. in `setup`, before any window exists: empty the web data folder if another runtime wrote
 //!    it, then open the vault (which wipes the session folders a crash left behind);
 //! 5. create the transparent window and the tray menu window, the tray icon and the global
@@ -37,7 +39,10 @@ mod hotkey;
 mod icon_id;
 mod icons;
 mod identity;
+mod launch_args;
 mod monitor;
+mod navigation;
+mod open_policy;
 mod os_open;
 mod placement;
 mod reload;
@@ -45,6 +50,7 @@ mod runtime;
 mod settings_write;
 mod state;
 mod storage_path;
+mod sys;
 mod tray;
 mod tray_menu;
 mod vault_commands;
@@ -69,7 +75,7 @@ use tauri_plugin_log::{Target, TargetKind};
 use crate::fatal::Fatal;
 use crate::state::{Launcher, VaultSlot};
 use crate::vault_dto::VaultErrorDto;
-use crate::vault_service::{EXIT_SAVE_BOUND, VaultService};
+use crate::vault_service::{EXIT_SAVE_BOUND, ExitLock, VaultService};
 
 /// Builds and runs the app. A start-up failure is shown in a message box and ends the process
 /// with status 1.
@@ -81,7 +87,7 @@ pub fn run() {
 }
 
 fn try_run() -> Result<(), Fatal> {
-    elevation::refuse_if_elevated(elevation::is_elevated())?;
+    elevation::refuse_if_elevated(sys::is_elevated())?;
     let paths =
         genslate_paths::resolve(APP_NAME).map_err(|error| Fatal::Paths(error.to_string()))?;
     paths
@@ -95,8 +101,10 @@ fn try_run() -> Result<(), Fatal> {
     let bundled = runtime::find_bundled(&paths.bundled_webview2_root());
     let chosen = runtime::select(host, bundled, runtime::MIN_HOST_VERSION)?;
     env_bootstrap::apply(&env_bootstrap::plan(&paths, &chosen));
-    // The loader is the judge: it honours the variables just set, so this proves the chosen
-    // runtime really starts (it fails for a damaged install or an elevated process).
+    // The loader is asked once with the variables just set: this proves that a runtime can be
+    // found (and fails for a missing or damaged one). It does NOT prove that the process is not
+    // elevated, nor that the runtime found is the one chosen above; the elevation check is
+    // fail-open by design (see `elevation`).
     tauri::webview_version().map_err(|_| Fatal::RuntimeFailed)?;
     let stamp = web_data::stamp_text(&chosen, host);
 
@@ -270,7 +278,9 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 }
 
 /// Locks the vault when the launcher exits: edits to opened files are saved first, for at most
-/// [`EXIT_SAVE_BOUND`], then the decrypted files are wiped whatever happened.
+/// [`EXIT_SAVE_BOUND`], then the decrypted files are wiped whatever happened, unless the save
+/// is stuck inside the file system: then the launcher exits without waiting and the next start
+/// wipes the session folders before anything else (`VaultService::open`).
 fn lock_vault_for_exit<R: Runtime>(app: &tauri::AppHandle<R>) {
     let Some(launcher) = app.try_state::<Launcher>() else {
         return;
@@ -278,13 +288,25 @@ fn lock_vault_for_exit<R: Runtime>(app: &tauri::AppHandle<R>) {
     let Some(service) = launcher.vault_service() else {
         return;
     };
-    if let Some(report) = service.lock_for_exit(EXIT_SAVE_BOUND)
-        && !report.unsynced.is_empty()
-    {
-        log::warn!(
-            "{} edited vault files could not be saved on exit",
+    match service.lock_for_exit(EXIT_SAVE_BOUND) {
+        ExitLock::NotUnlocked => {}
+        ExitLock::Locked(report) => {
+            if !report.undeletable.is_empty() {
+                log::warn!(
+                    "{} decrypted files could not be wiped on exit",
+                    report.undeletable.len()
+                );
+            }
+        }
+        ExitLock::Forced(report) => log::warn!(
+            "{} edited vault files could not be saved on exit and were discarded",
             report.unsynced.len()
-        );
+        ),
+        ExitLock::TimedOut => log::warn!(
+            "the vault did not lock within {EXIT_SAVE_BOUND:?}; exiting, the next start wipes \
+             the decrypted files"
+        ),
+        ExitLock::Failed(error) => log::warn!("the vault could not lock on exit: {error}"),
     }
 }
 

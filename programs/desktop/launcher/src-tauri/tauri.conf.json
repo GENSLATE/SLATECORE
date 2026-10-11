@@ -14,8 +14,8 @@
     "withGlobalTauri": false,
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: launcher-icon: http://launcher-icon.localhost; font-src 'self' data:; connect-src ipc: http://ipc.localhost",
-      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: launcher-icon: http://launcher-icon.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1421",
+      "csp": "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: launcher-icon: http://launcher-icon.localhost; font-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: launcher-icon: http://launcher-icon.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1421",
       "freezePrototype": true,
       "capabilities": ["main", "tray-menu"]
     }

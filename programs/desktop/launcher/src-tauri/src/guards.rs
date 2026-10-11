@@ -1,5 +1,7 @@
 //! Guard tests: rules of the leave-no-trace contract that no type can express, checked against
-//! the source and the JSON files. They read files, not Tauri, so they run on any host.
+//! the source and the JSON files. They read files, not Tauri, so they need no Windows API.
+
+// cspell:ignore nosniff
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -11,19 +13,9 @@ use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-/// The shell crate's folder (`.../src-tauri`). It is found from this file's own path, so the
-/// tests also work when the module is compiled into another crate on a host that cannot build
-/// the Tauri shell.
+/// The shell crate's folder (`.../src-tauri`).
 fn shell_dir() -> PathBuf {
-    let file = Path::new(file!());
-    if file.is_absolute() {
-        file.ancestors().nth(2).map_or_else(
-            || PathBuf::from(env!("CARGO_MANIFEST_DIR")),
-            Path::to_path_buf,
-        )
-    } else {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
 fn manifest(relative: &str) -> PathBuf {
@@ -102,35 +94,65 @@ fn autostart_module_does_not_exist() -> TestResult {
 
 // ── unsafe ───────────────────────────────────────────────────────────────────
 
+/// Whether `text` holds `word` as a whole identifier (`unsafe_code` is not `unsafe`).
+fn has_word(text: &str, word: &str) -> bool {
+    let is_name = |c: char| c.is_alphanumeric() || c == '_';
+    text.match_indices(word).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + word.len()..].chars().next();
+        !before.is_some_and(is_name) && !after.is_some_and(is_name)
+    })
+}
+
+/// Whether a line of code uses `unsafe` in any form, or switches the lint that forbids it off:
+/// `unsafe {`, `unsafe fn`, `unsafe impl`, `unsafe extern`, `#[unsafe(no_mangle)]`,
+/// `#[allow(unsafe_code)]`, `#[expect(unsafe_code)]` and the lint name on a line of its own in a
+/// multi-line attribute. Comment lines are skipped; a line may still mention the word in a string.
 fn uses_unsafe(line: &str) -> bool {
     let line = line.trim_start();
     if line.starts_with("//") {
         return false;
     }
-    [
-        "unsafe {",
-        "unsafe fn",
-        "unsafe impl",
-        "unsafe extern",
-        "unsafe trait",
-    ]
-    .iter()
-    .any(|pattern| line.contains(pattern))
-        || line.starts_with("unsafe_code,")
-        || line.contains("allow(unsafe_code")
+    let lowers_the_lint =
+        line.contains("unsafe_code") && !line.contains("deny") && !line.contains("forbid");
+    has_word(line, "unsafe") || lowers_the_lint
+}
+
+#[test]
+fn the_unsafe_check_sees_every_spelling() {
+    for line in [
+        "unsafe { std::env::set_var(a, b) };",
+        "    pub unsafe fn f() {}",
+        "unsafe impl Send for X {}",
+        "unsafe extern \"C\" {}",
+        "#[unsafe(no_mangle)]",
+        "#[allow(unsafe_code)]",
+        "#[expect(unsafe_code, reason = \"x\")]",
+        "#![allow(unsafe_code)]",
+        "    unsafe_code,",
+        "let x = 1; unsafe {}",
+    ] {
+        assert!(uses_unsafe(line), "{line}");
+    }
+    for line in [
+        "// unsafe { not code }",
+        "/// unsafe is described here",
+        "#![deny(unsafe_code)]",
+        "#![forbid(unsafe_code)]",
+        "let unsafe_count = 1;",
+        "fn is_unsafely_named() {}",
+    ] {
+        assert!(!uses_unsafe(line), "{line}");
+    }
 }
 
 #[test]
 fn only_env_bootstrap_contains_unsafe() -> TestResult {
     let root = workspace_root();
-    let mut folders = vec![
-        manifest("src"),
-        manifest("tests"),
-        root.join("programs/desktop/launcher/src-tauri/build.rs"),
-    ];
+    let mut folders = vec![manifest("src"), manifest("tests"), manifest("build.rs")];
     let crates = fs::read_dir(root.join("crates"))?;
     for entry in crates.flatten() {
-        for part in ["src", "tests", "benches", "examples"] {
+        for part in ["src", "tests", "benches", "examples", "build.rs"] {
             folders.push(entry.path().join(part));
         }
     }
@@ -147,6 +169,10 @@ fn only_env_bootstrap_contains_unsafe() -> TestResult {
         files.len() > 20,
         "the scan found only {} files",
         files.len()
+    );
+    assert!(
+        files.contains(&manifest("build.rs")),
+        "the shell's build.rs is scanned"
     );
 
     let mut users = BTreeSet::new();
@@ -421,6 +447,9 @@ fn windows_are_built_only_by_the_portable_builder() -> TestResult {
         ".transparent(true)",
         ".resizable(false)",
         ".visible(false)",
+        ".on_navigation(",
+        ".on_new_window(",
+        "NewWindowResponse::Deny",
     ] {
         assert!(
             window.contains(required),
@@ -449,6 +478,99 @@ fn no_window_is_created_by_the_config_so_none_gets_the_default_data_folder() -> 
             .is_some_and(|csp| csp.contains("launcher-icon:") && !csp.contains("unsafe-eval")),
         "the CSP serves the icon scheme and allows no eval"
     );
+    Ok(())
+}
+
+#[test]
+fn the_csp_shuts_the_doors_the_ui_does_not_use() -> TestResult {
+    let conf = json("tauri.conf.json")?;
+    for key in ["csp", "devCsp"] {
+        let csp = conf["app"]["security"][key]
+            .as_str()
+            .ok_or_else(|| format!("no {key}"))?;
+        for directive in [
+            "default-src 'self'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+            "object-src 'none'",
+        ] {
+            assert!(csp.contains(directive), "{key} lacks {directive}");
+        }
+        assert!(!csp.contains("unsafe-eval"), "{key} allows eval");
+        assert!(!csp.contains('*'), "{key} has a wildcard");
+    }
+    Ok(())
+}
+
+#[test]
+fn the_icon_scheme_answers_nosniff() -> TestResult {
+    assert!(read("src/icons.rs")?.contains("X_CONTENT_TYPE_OPTIONS"));
+    Ok(())
+}
+
+#[test]
+fn vault_open_refuses_the_types_that_run_code_before_it_decrypts_anything() -> TestResult {
+    let source = read("src/vault_commands.rs")?;
+    let command = source
+        .find("pub async fn vault_open")
+        .ok_or("no vault_open")?;
+    let body = &source[command..];
+    let check = body.find("is_blocked_type(").ok_or("no policy check")?;
+    let decrypt = body.find("open_entry(").ok_or("no decrypt")?;
+    assert!(
+        check < decrypt,
+        "the policy runs after the file is decrypted"
+    );
+    assert!(body.contains("VaultErrorDto::blocked_type()"));
+    Ok(())
+}
+
+#[test]
+fn launch_app_knows_who_is_calling_and_set_app_override_caps_its_arguments() -> TestResult {
+    let source = read("src/commands.rs")?;
+    let launch = source.find("pub fn launch_app").ok_or("no launch_app")?;
+    let launch = &source[launch..];
+    let launch = &launch[..launch.find("\n}\n").ok_or("no end")?];
+    assert!(
+        launch.contains("window: WebviewWindow"),
+        "the caller's window"
+    );
+    assert!(launch.contains("launch_args::check_launch(window.label()"));
+    let set = source
+        .find("pub fn set_app_override")
+        .ok_or("no override")?;
+    assert!(source[set..].contains("launch_args::check_list("));
+    Ok(())
+}
+
+#[test]
+fn the_shell_has_no_code_for_any_other_system() -> TestResult {
+    assert!(
+        !read("Cargo.toml")?.contains("[target."),
+        "dependencies are not split by target: the shell is Windows-only"
+    );
+    assert!(
+        !read("Cargo.toml")?.contains("dynamic-acl"),
+        "dynamic-acl is for plugins that add permissions at run time; there are none"
+    );
+    for file in shell_sources() {
+        let text = fs::read_to_string(&file)?;
+        for banned in [
+            "cfg(not(windows))",
+            "cfg(unix)",
+            "cfg(not(target_os",
+            "target_os = \"linux\"",
+            "target_os = \"macos\"",
+            "std::os::unix",
+        ] {
+            assert!(
+                !text.contains(banned),
+                "{} has code for another system ({banned})",
+                file.display()
+            );
+        }
+    }
     Ok(())
 }
 

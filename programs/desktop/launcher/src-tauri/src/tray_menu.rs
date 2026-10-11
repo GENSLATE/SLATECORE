@@ -20,7 +20,7 @@ use crate::brand::TRAY_MENU_TITLE;
 use crate::error::AppError;
 use crate::events;
 use crate::state::Launcher;
-use crate::window::portable_builder;
+use crate::window::{place_settled, portable_builder};
 
 /// Label of the tray menu window.
 pub const TRAY_MENU: &str = "tray-menu";
@@ -85,14 +85,9 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, cursor: PhysicalPosition<f64>) -> Re
         monitor.scale_factor(),
         TRAY_MENU_SIZE,
     );
-    let position = PhysicalPosition::new(placement.window.x, placement.window.y);
-    // Move first so the window adopts the target monitor's DPI, then size, then settle.
-    window.set_position(position)?;
-    window.set_size(PhysicalSize::new(
-        placement.window.width,
-        placement.window.height,
-    ))?;
-    window.set_position(position)?;
+    // Move first so the window adopts the target monitor's DPI, then size, then settle; and look
+    // at the size it ended up with before it is shown (UNVERIFIED on a mixed-DPI setup).
+    place_settled(&window, placement.window)?;
     let anchor = MenuAnchor {
         x: placement.anchor.0,
         y: placement.anchor.1,

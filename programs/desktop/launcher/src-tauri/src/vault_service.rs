@@ -7,9 +7,16 @@
 //! left behind); if another launcher holds the lock it touches nothing.
 //!
 //! Passwords arrive as `SecretString`, are lent to the vault and dropped (and zeroised) as soon
-//! as the call returns. They are never logged, formatted or stored here.
+//! as the call returns. They are never logged, formatted or stored here. Limit: before they reach
+//! this module the password crossed the IPC as text in the request body and went through
+//! `serde_json::Value` on its way into the `SecretString`; those intermediate copies are plain
+//! `String`s that are freed but not zeroised. Closing that needs a deserializer that builds the
+//! secret straight from the request bytes (Tauri does not offer one for command arguments).
+//!
+//! Exit: [`VaultService::lock_for_exit`] gives the save-then-wipe lock a bounded time and, if it
+//! does not finish, leaves the process to exit without waiting (see [`ExitLock::TimedOut`]).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -22,13 +29,86 @@ use genslate_vault::{
 };
 
 use crate::auto_lock::{AutoLock, LockReason, Timeouts};
-use crate::storage_path::resolve_user_path;
+use crate::storage_path::{resolve_again, resolve_user_path, verify_written};
 use crate::vault_dto::{
     ConflictDto, EntryDto, LockReportDto, VaultStatusDto, VerifyReportDto, relative_to,
 };
 
 /// How long the exit lock may try to save edits before it gives up and wipes anyway.
 pub const EXIT_SAVE_BOUND: Duration = Duration::from_secs(10);
+
+/// What the lock at exit did.
+#[derive(Debug)]
+pub enum ExitLock {
+    /// The vault was not unlocked: nothing to do.
+    NotUnlocked,
+    /// Edits were saved and the session folder wiped.
+    Locked(LockReport),
+    /// Saving did not work (the report lists the files), so the vault was locked and the session
+    /// folder wiped anyway: unsaved edits are lost.
+    Forced(LockReport),
+    /// The save-then-wipe lock did not finish within the bound (a stuck file system call holds
+    /// the vault's gates, so even a forced lock would wait behind it). The launcher exits
+    /// without waiting; the decrypted files stay on the drive until the next start, whose
+    /// start-up wipe removes every session folder before anything else runs.
+    TimedOut,
+    /// Neither lock worked.
+    Failed(VaultError),
+}
+
+/// The outcome of [`run_bounded`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum Bounded<T> {
+    /// The work finished in time.
+    Done(T),
+    /// It was still running when the bound ran out. It keeps running on its own thread; the
+    /// caller must not wait for it again.
+    TimedOut,
+    /// The thread could not be started.
+    NotStarted,
+}
+
+/// Runs `work` on a thread of its own and waits at most `bound` for its answer.
+pub fn run_bounded<T, F>(bound: Duration, work: F) -> Bounded<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let (done, result) = mpsc::channel();
+    let started = thread::Builder::new()
+        .name("vault-bounded".to_owned())
+        .spawn(move || {
+            // The receiver is gone after the bound; a late answer is not needed then.
+            let _ = done.send(work());
+        });
+    if started.is_err() {
+        return Bounded::NotStarted;
+    }
+    result
+        .recv_timeout(bound)
+        .map_or(Bounded::TimedOut, Bounded::Done)
+}
+
+/// The exit policy, apart from the vault so it can be tested: try `attempt` (save, then wipe)
+/// for at most `bound`; if it ended in an error, or could not start, run `force` (wipe whatever
+/// the cost); if it is still running at the bound, run nothing else, because `force` would
+/// queue behind the same locks.
+pub fn exit_lock_with<A, F>(bound: Duration, attempt: A, force: F) -> ExitLock
+where
+    A: FnOnce() -> Result<LockReport, VaultError> + Send + 'static,
+    F: FnOnce() -> Result<LockReport, VaultError>,
+{
+    match run_bounded(bound, attempt) {
+        Bounded::Done(Ok(report)) => ExitLock::Locked(report),
+        // Locked by someone else in the meantime: nothing left to do.
+        Bounded::Done(Err(VaultError::Locked)) => ExitLock::NotUnlocked,
+        Bounded::TimedOut => ExitLock::TimedOut,
+        Bounded::Done(Err(_)) | Bounded::NotStarted => match force() {
+            Ok(report) => ExitLock::Forced(report),
+            Err(error) => ExitLock::Failed(error),
+        },
+    }
+}
 
 /// A file decrypted into the session folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,13 +254,20 @@ impl VaultService {
         self.touch();
         let dest = VaultPath::parse(dest_dir)?;
         // Check every name before encrypting anything.
-        let sources = sources
+        let names = sources;
+        let sources = names
             .iter()
             .map(|source| resolve_user_path(&self.users_root, source, true))
             .collect::<Result<Vec<_>, _>>()?;
         let mut imported = Vec::with_capacity(sources.len());
-        for source in &sources {
-            let entry = self.vault.import(source, &dest, on_conflict.into(), None)?;
+        for (input, source) in names.iter().zip(&sources) {
+            // Just before this file's turn (earlier files may have taken a while): is it still
+            // the file that was checked?
+            let source = resolve_again(&self.users_root, input, source)?;
+            let entry = self
+                .vault
+                .import(&source, &dest, on_conflict.into(), None)
+                .map_err(|error| without_source_path(error, input))?;
             imported.push(EntryDto::from(&entry));
         }
         Ok(imported)
@@ -195,7 +282,10 @@ impl VaultService {
         self.touch();
         let from = VaultPath::parse(path)?;
         let dest = resolve_user_path(&self.users_root, dest_path, false)?;
-        self.vault.export(&from, &dest, None)
+        self.vault.export(&from, &dest, None)?;
+        // The vault decrypts and renames inside its own crate, which cannot be interrupted from
+        // here: look again at where the file landed (best effort, see `verify_written`).
+        verify_written(&self.users_root, &dest)
     }
 
     /// Decrypts `path` into the session folder and returns where.
@@ -253,27 +343,32 @@ impl VaultService {
             .then(|| self.vault.sync_session())
     }
 
-    /// Locks for good when the launcher exits: first with a bounded attempt to save every edit,
-    /// then, if that fails or takes too long, wiping anyway. Returns what the lock reported, or
-    /// `None` when the vault was not unlocked.
-    pub fn lock_for_exit(&self, bound: Duration) -> Option<LockReport> {
+    /// Locks for good when the launcher exits: first with a bounded attempt to save every edit
+    /// and wipe; a failed attempt is followed by a forced lock, a stuck one is left alone (see
+    /// [`ExitLock`]).
+    pub fn lock_for_exit(&self, bound: Duration) -> ExitLock {
         if self.vault.status().state != VaultState::Unlocked {
-            return None;
+            return ExitLock::NotUnlocked;
         }
-        let (done, result) = mpsc::channel();
-        let vault = Arc::clone(&self.vault);
-        let attempt = thread::Builder::new()
-            .name("vault-exit-lock".to_owned())
-            .spawn(move || {
-                // The receiver is gone only after the bound; a late answer is not needed then.
-                let _ = done.send(vault.lock(LockPolicy::SyncThenWipe));
-            });
-        if attempt.is_ok()
-            && let Ok(Ok(report)) = result.recv_timeout(bound)
-        {
-            return Some(report);
+        let attempt = Arc::clone(&self.vault);
+        let force = Arc::clone(&self.vault);
+        exit_lock_with(
+            bound,
+            move || attempt.lock(LockPolicy::SyncThenWipe),
+            move || force.lock(LockPolicy::Force),
+        )
+    }
+}
+
+/// An import error that names the source file by its absolute path (the vault's own `NotFound`
+/// for a file that vanished) is rewritten to name the relative `input` the webview sent, so no
+/// absolute path, and with it no drive letter or folder, reaches the webview.
+fn without_source_path(error: VaultError, input: &str) -> VaultError {
+    match error {
+        VaultError::NotFound(text) if Path::new(&text).is_absolute() => {
+            VaultError::NotFound(input.to_owned())
         }
-        self.vault.lock(LockPolicy::Force).ok()
+        other => other,
     }
 }
 
@@ -284,6 +379,7 @@ mod tests {
     use genslate_testing::{TempTree, fake_suite};
     use std::error::Error;
     use std::fs;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     type TestResult = Result<(), Box<dyn Error>>;
 
@@ -347,7 +443,10 @@ mod tests {
         ));
         assert!(service.lock(false).is_err());
         assert!(service.sync().is_none());
-        assert!(service.lock_for_exit(Duration::from_secs(1)).is_none());
+        assert!(matches!(
+            service.lock_for_exit(Duration::from_secs(1)),
+            ExitLock::NotUnlocked
+        ));
         Ok(())
     }
 
@@ -414,7 +513,10 @@ mod tests {
         let paths = paths_in(&tmp)?;
         let (service, _) = VaultService::open(&paths)?;
         service.create(&SecretString::from("correct horse battery"))?;
-        assert!(service.lock_for_exit(EXIT_SAVE_BOUND).is_some());
+        assert!(matches!(
+            service.lock_for_exit(EXIT_SAVE_BOUND),
+            ExitLock::Locked(_)
+        ));
         let json = serde_json::to_value(service.status())?;
         assert_eq!(json["state"], "locked");
         Ok(())
@@ -441,5 +543,135 @@ mod tests {
             "already locked"
         );
         Ok(())
+    }
+
+    #[test]
+    fn an_export_lands_inside_users_and_passes_the_after_check() -> TestResult {
+        let tmp = TempTree::new()?;
+        let paths = paths_in(&tmp)?;
+        let docs = paths.layout.storage.join("users/shared/Documents");
+        fs::create_dir_all(&docs)?;
+        fs::create_dir_all(paths.layout.storage.join("users/shared/Desktop"))?;
+        fs::write(docs.join("notes.txt"), "hello")?;
+        let (service, _) = VaultService::open(&paths)?;
+        service.create(&SecretString::from("correct horse battery"))?;
+        service.import(
+            &["shared/Documents/notes.txt".to_owned()],
+            "",
+            ConflictDto::Fail,
+        )?;
+
+        service.export("notes.txt", "shared/Desktop/out.txt")?;
+
+        let written = paths.layout.storage.join("users/shared/Desktop/out.txt");
+        assert_eq!(fs::read_to_string(written)?, "hello");
+        Ok(())
+    }
+
+    fn report() -> LockReport {
+        LockReport::default()
+    }
+
+    #[test]
+    fn a_finished_attempt_is_the_exit_lock_and_nothing_is_forced() {
+        let forced = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&forced);
+        let outcome = exit_lock_with(
+            Duration::from_secs(5),
+            || Ok(report()),
+            move || {
+                flag.store(true, Ordering::SeqCst);
+                Ok(report())
+            },
+        );
+        assert!(matches!(outcome, ExitLock::Locked(_)), "{outcome:?}");
+        assert!(!forced.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_failed_attempt_is_followed_by_a_forced_lock() {
+        let outcome = exit_lock_with(
+            Duration::from_secs(5),
+            || Err(VaultError::UnsyncedEdits(Vec::new())),
+            || Ok(report()),
+        );
+        assert!(matches!(outcome, ExitLock::Forced(_)), "{outcome:?}");
+
+        let outcome = exit_lock_with(
+            Duration::from_secs(5),
+            || Err(VaultError::Cancelled),
+            || Err(VaultError::Busy),
+        );
+        assert!(
+            matches!(outcome, ExitLock::Failed(VaultError::Busy)),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_stuck_attempt_is_not_waited_for_and_never_forced() {
+        let forced = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&forced);
+        let started = Instant::now();
+        let outcome = exit_lock_with(
+            Duration::from_millis(150),
+            || {
+                // A file-system call that does not come back while the launcher exits.
+                thread::sleep(Duration::from_secs(3));
+                Ok(report())
+            },
+            move || {
+                // Would queue behind the same gates as the stuck attempt.
+                flag.store(true, Ordering::SeqCst);
+                Ok(report())
+            },
+        );
+        assert!(matches!(outcome, ExitLock::TimedOut), "{outcome:?}");
+        assert!(
+            !forced.load(Ordering::SeqCst),
+            "no forced lock behind a stuck one"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the exit waited {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn run_bounded_returns_the_answer_or_gives_up() {
+        assert_eq!(run_bounded(Duration::from_secs(5), || 7), Bounded::Done(7));
+        let slow = run_bounded(Duration::from_millis(50), || {
+            thread::sleep(Duration::from_millis(600));
+            1
+        });
+        assert_eq!(slow, Bounded::TimedOut);
+    }
+
+    #[test]
+    fn an_import_error_names_the_relative_input_not_the_absolute_path() {
+        let absolute = std::env::temp_dir()
+            .join("users")
+            .join("shared")
+            .join("a.txt");
+        let hidden = without_source_path(
+            VaultError::NotFound(absolute.display().to_string()),
+            "shared/a.txt",
+        );
+        assert!(
+            matches!(&hidden, VaultError::NotFound(text) if text == "shared/a.txt"),
+            "{hidden:?}"
+        );
+
+        // A vault path (the destination folder) is already relative and is left alone.
+        let kept = without_source_path(VaultError::NotFound("Docs/x".to_owned()), "shared/a.txt");
+        assert!(
+            matches!(&kept, VaultError::NotFound(text) if text == "Docs/x"),
+            "{kept:?}"
+        );
+        assert!(matches!(
+            without_source_path(VaultError::Busy, "shared/a.txt"),
+            VaultError::Busy
+        ));
     }
 }

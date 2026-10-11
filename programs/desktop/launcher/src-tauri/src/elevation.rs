@@ -3,10 +3,15 @@
 //!
 //! There is no safe std or Tauri API for the question "is this process elevated", and `unsafe`
 //! is not allowed outside `env_bootstrap`. So the shell asks the system's own `whoami /groups`
-//! and looks for the *High* (or *System*) mandatory integrity level SID. A SID is the same in
-//! every language of Windows. The program is started by its full path under `SystemRoot`, never
-//! found through `PATH` or the current folder (the drive the launcher lives on is writable by
-//! anyone).
+//! (`sys::is_elevated`) and this module looks for the *High* (or *System*) mandatory integrity
+//! level SID in the answer. A SID is the same in every language of Windows.
+//!
+//! **Fail-open, on purpose.** When `whoami` cannot be run or its answer is not understood the
+//! process counts as not elevated and start-up goes on. Nothing later reliably catches an
+//! elevated start: `tauri::webview_version()` only proves that a runtime can be *found* (it can
+//! succeed in an elevated process), so an elevated launcher that slipped through may have its
+//! `WebView2` ignore the `WEBVIEW2_*` variables and write its profile to the PC. The check is a
+//! courtesy with a clear message, not a security boundary.
 
 use crate::fatal::Fatal;
 
@@ -31,40 +36,6 @@ pub fn refuse_if_elevated(elevated: bool) -> Result<(), Fatal> {
     } else {
         Ok(())
     }
-}
-
-/// Whether this process runs elevated. Any failure to find out counts as "not elevated": the
-/// check is a courtesy, `WebView2`'s own failure is caught later (`Fatal::RuntimeFailed`).
-#[cfg(windows)]
-pub fn is_elevated() -> bool {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    /// Do not flash a console window.
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let Some(root) = std::env::var_os("SystemRoot") else {
-        return false;
-    };
-    let whoami = std::path::Path::new(&root)
-        .join("System32")
-        .join("whoami.exe");
-    match Command::new(whoami)
-        .arg("/groups")
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-    {
-        Ok(output) => lists_elevated_integrity(&String::from_utf8_lossy(&output.stdout)),
-        Err(error) => {
-            log::debug!("could not check elevation: {error}");
-            false
-        }
-    }
-}
-
-/// Only Windows ships; this keeps the crate building on other hosts.
-#[cfg(not(windows))]
-pub fn is_elevated() -> bool {
-    false
 }
 
 #[cfg(test)]

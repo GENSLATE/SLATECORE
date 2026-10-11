@@ -66,6 +66,50 @@ fn not_found(input: &str) -> VaultError {
     VaultError::NotFound(input.to_owned())
 }
 
+/// Checks, just before a source is imported, that `input` still resolves to the file it resolved
+/// to when the whole request was checked (`first`). Best effort: the vault opens the file a
+/// moment later and a link swapped in that gap is not seen by this check, but the gap is now the
+/// length of one `open`, not of every import before it.
+///
+/// # Errors
+///
+/// The errors of [`resolve_user_path`], and [`VaultError::InvalidPath`] when the answer changed.
+pub fn resolve_again(users_root: &Path, input: &str, first: &Path) -> Result<PathBuf, VaultError> {
+    let again = resolve_user_path(users_root, input, true)?;
+    if again == first {
+        Ok(again)
+    } else {
+        Err(VaultError::InvalidPath("the file changed while importing"))
+    }
+}
+
+/// Checks, after an export wrote `dest`, that the file really is inside `users_root`: the folder
+/// it went into is resolved again, so a link swapped in while the vault was decrypting is caught.
+/// A file that landed outside is removed (best effort) and the export reported as refused.
+///
+/// This narrows, but cannot close, the gap between checking the destination and the vault's own
+/// rename (inside the `genslate-vault` crate).
+///
+/// # Errors
+///
+/// [`VaultError::InvalidPath`] when the written file is not inside `users_root`.
+pub fn verify_written(users_root: &Path, dest: &Path) -> Result<(), VaultError> {
+    let inside = fs::canonicalize(users_root).and_then(|base| {
+        fs::canonicalize(dest).map(|written| written.starts_with(&base) && written != base)
+    });
+    match inside {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            // Best effort: decrypted data has landed where it must not be.
+            let _ = fs::remove_file(dest);
+            Err(VaultError::InvalidPath("the path leaves storage/users"))
+        }
+        Err(_) => Err(VaultError::Internal(
+            "the exported file could not be checked",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +193,70 @@ mod tests {
             resolve_user_path(&users, "shared/NoSuchFolder/out.txt", false),
             Err(VaultError::NotFound(_))
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn resolving_again_accepts_the_same_file_and_refuses_another() -> TestResult {
+        let tmp = tree()?.file("users/shared/Documents/other.txt", "o")?;
+        let users = tmp.join("users");
+        let first = resolve_user_path(&users, "shared/Documents/notes.txt", true)?;
+        assert_eq!(
+            resolve_again(&users, "shared/Documents/notes.txt", &first)?,
+            first
+        );
+        let other = resolve_user_path(&users, "shared/Documents/other.txt", true)?;
+        assert!(invalid(resolve_again(
+            &users,
+            "shared/Documents/notes.txt",
+            &other
+        )));
+        Ok(())
+    }
+
+    #[test]
+    fn resolving_again_reports_a_file_that_vanished() -> TestResult {
+        let tmp = tree()?;
+        let users = tmp.join("users");
+        let first = resolve_user_path(&users, "shared/Documents/notes.txt", true)?;
+        fs::remove_file(&first)?;
+        assert!(matches!(
+            resolve_again(&users, "shared/Documents/notes.txt", &first),
+            Err(VaultError::NotFound(_))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_written_inside_users_passes_the_after_check() -> TestResult {
+        let tmp = tree()?;
+        let users = tmp.join("users");
+        let dest = users.join("shared/Desktop/out.txt");
+        fs::write(&dest, "decrypted")?;
+        verify_written(&users, &dest)?;
+        assert!(dest.exists(), "a good export is left alone");
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_that_landed_outside_users_is_removed_and_refused() -> TestResult {
+        let tmp = tree()?;
+        let users = tmp.join("users");
+        let escaped = tmp.join("outside.txt");
+        assert!(escaped.exists());
+        assert!(invalid(
+            verify_written(&users, &escaped).map(|()| PathBuf::new())
+        ));
+        assert!(!escaped.exists(), "the stray plaintext is removed");
+        Ok(())
+    }
+
+    #[test]
+    fn a_missing_written_file_is_an_error_not_a_pass() -> TestResult {
+        let tmp = tree()?;
+        let users = tmp.join("users");
+        let result = verify_written(&users, &users.join("shared/Desktop/nothing.txt"));
+        assert!(result.is_err());
         Ok(())
     }
 }

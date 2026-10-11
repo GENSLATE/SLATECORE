@@ -13,6 +13,8 @@ use genslate_vault::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::auto_lock::LockReason;
+
 /// `uninitialized`, `locked` or `unlocked`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -238,6 +240,33 @@ impl From<ConflictDto> for Conflict {
     }
 }
 
+/// `vault://lock-blocked`: an automatic lock (idle or hidden timer) could not finish, so the
+/// vault is still unlocked and decrypted files are still in the session folder. `error` is the
+/// reason the lock gave, in the same shape as a rejected command (for an edit that cannot be
+/// saved: `UNSYNCED_EDITS` with the vault paths of the files). The launcher keeps retrying; the
+/// UI should say so and offer to save elsewhere or to lock anyway (`vault_lock` with `force`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LockBlockedDto {
+    /// `idle` or `hidden`.
+    pub reason: &'static str,
+    pub error: VaultErrorDto,
+}
+
+impl LockBlockedDto {
+    pub fn new(reason: LockReason, error: &VaultError) -> Self {
+        Self {
+            reason: reason.as_str(),
+            error: VaultErrorDto::from(error),
+        }
+    }
+
+    /// A stable description of the cause, so a repeat of the same block is recognised.
+    pub fn cause(&self) -> String {
+        format!("{}:{:?}", self.error.code, self.error.paths)
+    }
+}
+
 /// A rejected vault command. `message` never contains a password, a key or an OS path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,6 +287,16 @@ impl VaultErrorDto {
             retry_after_ms: None,
             paths: None,
         }
+    }
+
+    /// `open_policy` refuses to open this type of file: opening could run it.
+    pub fn blocked_type() -> Self {
+        Self::plain(
+            "BLOCKED_TYPE",
+            "this type of file can run code, so SLATECORE LAUNCHER will not open it from the \
+             vault; export it to a folder instead"
+                .to_owned(),
+        )
     }
 
     /// The file was decrypted into the session folder but the system could not open it.
@@ -397,7 +436,7 @@ mod tests {
 
     #[test]
     fn every_code_is_one_the_frontend_knows() {
-        const KNOWN: [&str; 23] = [
+        const KNOWN: [&str; 24] = [
             "UNINITIALIZED",
             "ALREADY_EXISTS",
             "LOCKED",
@@ -421,6 +460,7 @@ mod tests {
             "UNSYNCED_EDITS",
             "IO",
             "INTERNAL",
+            "BLOCKED_TYPE",
         ];
         let samples = [
             VaultError::Uninitialized,
@@ -462,6 +502,43 @@ mod tests {
             relative_to(Path::new("/elsewhere/leak.txt"), &root),
             "leak.txt"
         );
+    }
+
+    #[test]
+    fn a_blocked_lock_tells_the_ui_why_and_which_files() -> TestResult {
+        let unsynced = VaultError::UnsyncedEdits(vec![VaultPath::parse("Docs/a.txt")?]);
+        let blocked = LockBlockedDto::new(LockReason::Hidden, &unsynced);
+        let json = serde_json::to_value(&blocked)?;
+        assert_eq!(json["reason"], "hidden");
+        assert_eq!(json["error"]["code"], "UNSYNCED_EDITS");
+        assert_eq!(json["error"]["paths"][0], "Docs/a.txt");
+        assert!(json["error"]["message"].is_string());
+
+        let same = LockBlockedDto::new(LockReason::Idle, &unsynced);
+        assert_eq!(
+            same.cause(),
+            blocked.cause(),
+            "the reason is not part of the cause"
+        );
+        let other = VaultError::UnsyncedEdits(vec![VaultPath::parse("Docs/b.txt")?]);
+        assert_ne!(
+            LockBlockedDto::new(LockReason::Idle, &other).cause(),
+            same.cause()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_blocked_type_error_has_its_own_code_and_no_path() -> TestResult {
+        let json = serde_json::to_value(VaultErrorDto::blocked_type())?;
+        assert_eq!(json["code"], "BLOCKED_TYPE");
+        let message = json["message"].as_str().ok_or("no message")?;
+        assert!(message.contains("export"), "{message}");
+        assert!(
+            !message.contains('\\') && !message.contains('/'),
+            "{message}"
+        );
+        Ok(())
     }
 
     #[test]

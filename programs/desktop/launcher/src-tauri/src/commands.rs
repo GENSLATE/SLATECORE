@@ -14,10 +14,11 @@ use genslate_launcher_core::system::{self, VolumeInfo};
 use genslate_launcher_core::{LauncherError, config::Settings};
 use genslate_paths::Mode;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 use crate::error::AppError;
 use crate::folders::{ConfigFile, SharedFolder};
+use crate::launch_args;
 use crate::reload::{emit, reload_settings};
 use crate::settings_write::{self, SettingKey};
 use crate::state::Launcher;
@@ -100,9 +101,19 @@ pub fn rescan(app: AppHandle, launcher: State<'_, Launcher>) {
     emit(&app, events::CATALOG, ());
 }
 
+/// Starts an app. `args` replaces the app's configured arguments and is accepted only from the
+/// launcher window (`main`), never from the tray menu window, and is capped in count and length
+/// (`launch_args`): an argument list is a command line, so a page that is not the launcher's own
+/// must not choose one.
 #[tauri::command]
-pub fn launch_app(app: AppHandle, id: String, args: Option<Vec<String>>) -> Result<(), AppError> {
-    launch(&app, &parse_id(&id)?, args)
+pub fn launch_app(
+    window: WebviewWindow,
+    id: String,
+    args: Option<Vec<String>>,
+) -> Result<(), AppError> {
+    launch_args::check_launch(window.label(), args.as_deref())
+        .map_err(|error| AppError::InvalidArgument(error.to_string()))?;
+    launch(window.app_handle(), &parse_id(&id)?, args)
 }
 
 /// Starts `id`, records it as recent and hides the launcher unless it is pinned.
@@ -140,6 +151,11 @@ pub fn open_app_folder(launcher: State<'_, Launcher>, id: String) -> Result<(), 
 
 #[tauri::command]
 pub fn set_app_override(app: AppHandle, id: String, patch: OverridePatch) -> Result<(), AppError> {
+    // The arguments stored for an app are what `launch_app` starts it with later.
+    if let Some(Some(args)) = &patch.args {
+        launch_args::check_list(args)
+            .map_err(|error| AppError::InvalidArgument(error.to_string()))?;
+    }
     apply_override(&app, &parse_id(&id)?, &patch)
 }
 

@@ -3,19 +3,16 @@
 //!
 //! [`plan`] decides the values (pure), [`apply`] sets them. `apply` is the only place in the
 //! workspace that uses `unsafe` (`std::env::set_var` is `unsafe` in edition 2024); a test
-//! checks that no other file does. [`child_env`] is the environment a started program gets: the
-//! launcher's own `WEBVIEW2_*` variables are removed so a `WebView2` app does not share (and
-//! lock) the launcher's data folder.
+//! checks that no other file does. [`webview2_variables`] names what a started program must not
+//! inherit: the launcher's own `WEBVIEW2_*` variables are removed so a `WebView2` app does not
+//! share (and lock) the launcher's data folder.
 
-use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
 use genslate_paths::AppPaths;
 
 use crate::runtime::Runtime;
-
-/// An environment as name and value.
-pub type Env = BTreeMap<String, String>;
 
 /// Names (compared without regard to letter case, as Windows does) with this prefix belong to
 /// `WebView2` and are never handed to a started program.
@@ -47,30 +44,39 @@ pub fn plan(paths: &AppPaths, runtime: &Runtime) -> Vec<(String, String)> {
     plan
 }
 
-fn is_webview2(name: &str) -> bool {
-    name.to_ascii_uppercase().starts_with(WEBVIEW2_PREFIX)
+/// Whether `name` is a `WebView2` variable. Names are compared without regard to letter case, as
+/// Windows does, and by their lossy text so a name that is not valid Unicode but starts with the
+/// prefix is still caught.
+///
+/// `launch.rs` in `genslate-launcher-core` has the same rule as a private function
+/// (`is_webview2_variable`); it is not public, so this is a second copy until the crate exports it.
+fn is_webview2(name: &OsStr) -> bool {
+    name.to_string_lossy()
+        .to_ascii_uppercase()
+        .starts_with(WEBVIEW2_PREFIX)
 }
 
 /// The `WEBVIEW2_*` variables among `current` that the plan does not set: a PC may define
 /// `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`, `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` or
 /// `WEBVIEW2_RELEASE_CHANNELS`, which would silently change which runtime runs or how.
 pub fn stale_vars(
-    current: impl IntoIterator<Item = String>,
+    current: impl IntoIterator<Item = OsString>,
     plan: &[(String, String)],
-) -> Vec<String> {
-    current
+) -> Vec<OsString> {
+    webview2_variables(current)
         .into_iter()
-        .filter(|name| is_webview2(name))
-        .filter(|name| !plan.iter().any(|(set, _)| set.eq_ignore_ascii_case(name)))
+        .filter(|name| {
+            let name = name.to_string_lossy();
+            !plan.iter().any(|(set, _)| set.eq_ignore_ascii_case(&name))
+        })
         .collect()
 }
 
-/// The environment for a started program: `base` without any `WEBVIEW2_*` variable.
-pub fn child_env(base: &Env) -> Env {
-    base.iter()
-        .filter(|(name, _)| !is_webview2(name))
-        .map(|(name, value)| (name.clone(), value.clone()))
-        .collect()
+/// The names among `names` that a started program must not inherit (every `WEBVIEW2_*`
+/// variable): the caller removes them from the child's environment, like `launch.rs` does for
+/// started apps. Takes `OsString` names (from `std::env::vars_os`), so no variable can panic it.
+pub fn webview2_variables(names: impl IntoIterator<Item = OsString>) -> Vec<OsString> {
+    names.into_iter().filter(|name| is_webview2(name)).collect()
 }
 
 /// Removes the stale `WEBVIEW2_*` variables, then sets `plan`.
@@ -81,7 +87,7 @@ pub fn child_env(base: &Env) -> Env {
     reason = "std::env::set_var is unsafe in edition 2024; this is the one place that sets variables"
 )]
 pub fn apply(plan: &[(String, String)]) {
-    let current = std::env::vars_os().filter_map(|(name, _)| name.into_string().ok());
+    let current = std::env::vars_os().map(|(name, _)| name);
     for name in stale_vars(current, plan) {
         // SAFETY: `apply` runs once, at the start of `run`, before the Tauri builder and before
         // any thread of ours is started, so nothing reads or writes the environment while it
@@ -162,20 +168,42 @@ mod tests {
 
     #[test]
     fn child_env_scrubs_webview2_vars() {
-        let base: Env = [
-            ("PATH", "p"),
-            ("TEMP", "t"),
-            ("WEBVIEW2_USER_DATA_FOLDER", "u"),
-            ("webview2_browser_executable_folder", "b"),
-            ("WebView2_Release_Channels", "0"),
-            ("WEBVIEW", "kept: not the WEBVIEW2_ prefix"),
+        let names = [
+            "PATH",
+            "TEMP",
+            "WEBVIEW2_USER_DATA_FOLDER",
+            "webview2_browser_executable_folder",
+            "WebView2_Release_Channels",
+            "WEBVIEW",
         ]
-        .into_iter()
-        .map(|(k, v)| (k.to_owned(), v.to_owned()))
-        .collect();
-        let child = child_env(&base);
-        let names: Vec<&str> = child.keys().map(String::as_str).collect();
-        assert_eq!(names, ["PATH", "TEMP", "WEBVIEW"]);
+        .map(OsString::from);
+        let scrubbed = webview2_variables(names);
+        assert_eq!(
+            scrubbed,
+            [
+                "WEBVIEW2_USER_DATA_FOLDER",
+                "webview2_browser_executable_folder",
+                "WebView2_Release_Channels"
+            ]
+            .map(OsString::from)
+        );
+    }
+
+    /// A variable whose name is not valid Unicode (an unpaired surrogate) must neither panic the
+    /// launcher (`std::env::vars` would) nor slip through when it starts with `WEBVIEW2_`.
+    /// Only Windows can build such a name, which is also the only place the shell runs.
+    #[cfg(windows)]
+    #[test]
+    fn a_name_that_is_not_unicode_is_neither_a_panic_nor_a_free_pass() {
+        use std::os::windows::ffi::OsStringExt;
+        let name = |prefix: &str| {
+            let mut units: Vec<u16> = prefix.encode_utf16().collect();
+            units.push(0xD800);
+            OsString::from_wide(&units)
+        };
+        let odd = name("WEBVIEW2_");
+        let scrubbed = webview2_variables([odd.clone(), name("OTHER_")]);
+        assert_eq!(scrubbed, [odd]);
     }
 
     #[test]
@@ -190,13 +218,14 @@ mod tests {
             "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER",
             "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
         ]
-        .map(String::from);
+        .map(OsString::from);
         assert_eq!(
             stale_vars(current, &plan),
             [
                 "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER",
                 "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
             ]
+            .map(OsString::from)
         );
     }
 }

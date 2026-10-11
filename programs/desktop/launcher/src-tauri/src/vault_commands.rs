@@ -13,6 +13,16 @@
 //! The vault locks itself after `[vault] idle-lock-minutes` without use (default 10) and
 //! `hide-lock-minutes` after the launcher was hidden (default 5), and when the launcher exits
 //! (`lib.rs`). Edits to opened files are saved back to the vault every 30 seconds and on lock.
+//!
+//! An automatic lock never throws away an edit it could not save: it stays blocked, the vault
+//! stays unlocked and the shell retries every tick. The UI is told with `vault://status` and
+//! `vault://lock-blocked` (see [`LockBlockedDto`]) when a block starts, changes, and then once
+//! a minute while it lasts. Whether such a lock should eventually wipe unsaved edits is an open
+//! owner decision.
+//!
+//! `vault_open` hands the decrypted copy to Explorer (see `os_open` for the traces that leaves on
+//! the host) and refuses the file types that could run code (`open_policy`, error code
+//! `BLOCKED_TYPE`).
 
 use std::sync::Arc;
 use std::thread;
@@ -21,13 +31,15 @@ use std::time::{Duration, Instant};
 use genslate_vault::{SecretString, VaultError};
 use tauri::{AppHandle, Manager};
 
-use crate::auto_lock::Timeouts;
+use crate::auto_lock::{BlockedNotifier, Timeouts};
 use crate::events;
+use crate::open_policy;
 use crate::os_open;
 use crate::reload::emit;
 use crate::state::{Launcher, VaultSlot};
 use crate::vault_dto::{
-    ConflictDto, EntryDto, LockReportDto, OpenedDto, VaultErrorDto, VaultStatusDto, VerifyReportDto,
+    ConflictDto, EntryDto, LockBlockedDto, LockReportDto, OpenedDto, VaultErrorDto, VaultStatusDto,
+    VerifyReportDto,
 };
 use crate::vault_service::{Tick, VaultService};
 
@@ -140,6 +152,10 @@ pub async fn vault_export(app: AppHandle, path: String, dest_path: String) -> Co
 
 #[tauri::command]
 pub async fn vault_open(app: AppHandle, path: String) -> CommandResult<OpenedDto> {
+    // Before anything is decrypted: a type that could run code is not opened at all.
+    if open_policy::is_blocked_type(&path) {
+        return Err(VaultErrorDto::blocked_type());
+    }
     let (file, opened) = blocking_then_status(&app, move |service| {
         let file = service.open_entry(&path)?;
         let opened = os_open::open_path(&file.absolute).is_ok();
@@ -171,7 +187,7 @@ pub fn spawn_background(app: AppHandle) {
 
 fn background(app: &AppHandle) {
     let mut ticks: u32 = 0;
-    let mut blocked_logged = false;
+    let mut blocked = BlockedNotifier::default();
     loop {
         thread::sleep(TICK);
         let launcher = app.state::<Launcher>();
@@ -186,9 +202,9 @@ fn background(app: &AppHandle) {
             )
         };
         match service.tick(Instant::now(), timeouts) {
-            Tick::Idle => blocked_logged = false,
+            Tick::Idle => blocked.clear(),
             Tick::Locked(reason, report) => {
-                blocked_logged = false;
+                blocked.clear();
                 log::info!(
                     "the vault locked itself ({reason:?}); {} session files wiped",
                     report.wiped_files
@@ -196,9 +212,15 @@ fn background(app: &AppHandle) {
                 emit(app, events::VAULT_STATUS, service.status());
             }
             Tick::Blocked(reason, error) => {
-                if !blocked_logged {
-                    log::warn!("the vault could not lock itself ({reason:?}): {error}");
-                    blocked_logged = true;
+                let notice = LockBlockedDto::new(reason, &error);
+                if blocked.blocked(reason, &notice.cause()) {
+                    log::warn!(
+                        "the vault could not lock itself ({reason:?}): {}; still unlocked, \
+                         retrying",
+                        notice.error.message
+                    );
+                    emit(app, events::VAULT_LOCK_BLOCKED, notice);
+                    emit(app, events::VAULT_STATUS, service.status());
                 }
             }
         }

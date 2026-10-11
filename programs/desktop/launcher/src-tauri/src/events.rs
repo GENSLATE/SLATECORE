@@ -14,6 +14,8 @@ pub const CATALOG: &str = "launcher://catalog";
 pub const TELEMETRY: &str = "launcher://telemetry";
 /// The vault changed state, automatic locks included (`VaultStatusDto`).
 pub const VAULT_STATUS: &str = "vault://status";
+/// An automatic lock could not finish and the vault is still unlocked (`LockBlockedDto`).
+pub const VAULT_LOCK_BLOCKED: &str = "vault://lock-blocked";
 /// Show the tray menu at an anchor (`MenuAnchor`), sent to the tray menu window only.
 pub const TRAY_MENU_OPEN: &str = "tray-menu://open";
 /// The tray menu lost focus: close it (tray menu window only).

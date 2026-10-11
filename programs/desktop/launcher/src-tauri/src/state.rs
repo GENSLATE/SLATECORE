@@ -12,7 +12,7 @@ use genslate_launcher_core::recent::{RecentLaunches, recent_path};
 use genslate_launcher_core::watch::{FileWatcher, SelfWrites};
 use genslate_paths::{AppPaths, SHARED_PROFILE};
 
-use crate::debounce::RecentHide;
+use crate::debounce::{RecentBlur, RecentHide};
 use crate::vault_dto::VaultErrorDto;
 use crate::vault_service::VaultService;
 
@@ -44,6 +44,9 @@ pub struct WindowFlags {
     pub visible: bool,
     /// When the window last hid: a tray click hides it (blur) and then toggles.
     pub recent_hide: RecentHide,
+    /// When the window last lost focus: a tray click on a launcher that a blur does not hide
+    /// (pinned, or hide-on-blur off) blurs it and then toggles, and means "hide".
+    pub recent_blur: RecentBlur,
     pub geometry: Option<FrameGeometry>,
 }
 
