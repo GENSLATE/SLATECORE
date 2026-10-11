@@ -1,0 +1,11 @@
+{
+  "$comment": "Pins the Fixed Version WebView2 runtime that bun run package --webview2 <cab> puts into the add-on zip. It ships UNRESOLVED on purpose: the add-on step refuses to run until a person has downloaded the x64 Fixed Version cab from Microsoft's WebView2 download page and filled in version, fileName, url, sha256 and size from that exact file (steps: programs/desktop/launcher/other/launcher/documents/release.md). url must be an https microsoft.com address. Never take the cab from anywhere but Microsoft, and never commit the cab itself.",
+  "schema": 1,
+  "version": "UNRESOLVED",
+  "architecture": "x64",
+  "fileName": "UNRESOLVED",
+  "url": "UNRESOLVED",
+  "sha256": "UNRESOLVED",
+  "size": 0,
+  "licenseNotice": "programs/desktop/launcher/other/launcher/licenses/webview2.NOTICE.md"
+}

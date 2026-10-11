@@ -17,7 +17,6 @@
         "@commitlint/cli",
         "@commitlint/config-conventional",
         "@tauri-apps/cli",
-        "fflate",
         "turbo"
       ]
     },
