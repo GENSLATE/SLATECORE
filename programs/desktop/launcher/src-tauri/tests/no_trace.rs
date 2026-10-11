@@ -4,11 +4,13 @@
 //! same with the packaged exe, and also covers the registry.
 //!
 //! What this runs: the same I/O the shell performs before and just after its first window, in the
-//! same order, through the public crates. The shell's own `env_bootstrap`, `web_data` and
-//! `window` modules are private to the app crate, so an integration test cannot call them; their
-//! behaviour (the environment plan, the web data stamp) is covered by the unit tests inside
-//! `src/`. Everything here goes through `genslate-paths`, `genslate-launcher-core` and
-//! `genslate-vault`, which is where the shell gets its folders and files from.
+//! same order, through the public crates (`genslate-paths`, `genslate-launcher-core`,
+//! `genslate-vault`). The shell's own `env_bootstrap` and `web_data` modules are private to the app
+//! crate, so an integration test cannot call them; their start-up steps run under the same
+//! `NoTraceGuard` in unit tests inside `src/` (`env_bootstrap::tests::startup_steps_leave_the_os_folders_untouched`
+//! and `web_data::tests::resetting_the_web_data_never_touches_the_os_folders`). `env_bootstrap::apply`
+//! itself changes the environment of the whole process, so only its plan and its stale-variable
+//! lists are tested, never a call.
 //!
 //! Building: an integration test links the app's library, which needs the Windows Tauri
 //! toolchain, so on Linux it can only be compile-checked

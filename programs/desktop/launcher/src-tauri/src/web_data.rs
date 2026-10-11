@@ -155,6 +155,22 @@ mod tests {
     }
 
     #[test]
+    fn resetting_the_web_data_never_touches_the_os_folders() -> TestResult {
+        use genslate_testing::NoTraceGuard;
+
+        let tmp = TempTree::new()?;
+        let guard = NoTraceGuard::new()?;
+        let paths = paths_in(&tmp)?;
+        reset_if_runtime_changed(&paths, "host:154.0.0.1")?;
+        fs::create_dir_all(paths.webview2_dir.join("EBWebView"))?;
+        fs::write(paths.webview2_dir.join("EBWebView/Local State"), "x")?;
+        assert!(reset_if_runtime_changed(&paths, "bundled:153.0.1.1-x64")?);
+        assert!(!reset_if_runtime_changed(&paths, "bundled:153.0.1.1-x64")?);
+        guard.assert_unchanged();
+        Ok(())
+    }
+
+    #[test]
     fn reset_rules() {
         assert!(!needs_reset(None, "a", false));
         assert!(needs_reset(None, "a", true));

@@ -154,6 +154,56 @@ mod tests {
         Ok(())
     }
 
+    /// The start-up steps of `run` that touch the file system or the environment, apart from
+    /// `apply` (which would change the environment of the whole test process): find the folders,
+    /// choose the bundled runtime, plan the variables, list the stale ones, stamp the web data
+    /// folder. Nothing may appear in `%TEMP%`, `%APPDATA%` or `%LOCALAPPDATA%`.
+    #[test]
+    fn startup_steps_leave_the_os_folders_untouched() -> TestResult {
+        use crate::runtime::{MIN_HOST_VERSION, find_bundled, select};
+        use genslate_testing::NoTraceGuard;
+
+        let tmp = TempTree::new()?;
+        let guard = NoTraceGuard::new()?;
+        let paths = paths_in(&tmp)?;
+        paths.create_dirs()?;
+        let runtime_dir = paths.bundled_webview2_root().join("154.0.1.2-x64");
+        std::fs::create_dir_all(&runtime_dir)?;
+        std::fs::write(runtime_dir.join("msedgewebview2.exe"), "")?;
+
+        let chosen = select(
+            None,
+            find_bundled(&paths.bundled_webview2_root()),
+            MIN_HOST_VERSION,
+        )?;
+        let plan = plan(&paths, &chosen);
+        assert_eq!(plan.len(), 4, "{plan:?}");
+        for (name, value) in &plan {
+            assert!(
+                PathBuf::from(value).starts_with(&paths.layout.root),
+                "{name} must be inside installDir"
+            );
+        }
+        let current = [
+            "PATH",
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "WEBVIEW2_USER_DATA_FOLDER",
+        ]
+        .map(OsString::from);
+        assert_eq!(
+            stale_vars(current.clone(), &plan),
+            [OsString::from("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")]
+        );
+        assert_eq!(webview2_variables(current).len(), 2);
+
+        let stamp = crate::web_data::stamp_text(&chosen, None);
+        crate::web_data::reset_if_runtime_changed(&paths, &stamp)?;
+        assert!(paths.webview2_dir.is_dir());
+        assert!(paths.cache_dir.join(crate::web_data::STAMP_FILE).is_file());
+        guard.assert_unchanged();
+        Ok(())
+    }
+
     #[test]
     fn the_host_runtime_plan_sets_no_browser_folder() -> TestResult {
         let tmp = TempTree::new()?;
