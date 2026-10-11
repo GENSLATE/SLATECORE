@@ -157,11 +157,9 @@ pub fn snapshot(dir: &Path) -> io::Result<BTreeMap<PathBuf, Vec<u8>>> {
             let path = entry.path();
             if entry.file_type()?.is_dir() {
                 stack.push(path);
-            } else if entry.file_name() == "vault.lock" {
-                // The instance lock is empty and, while a vault handle is open, Windows makes
-                // reading a file that holds an exclusive lock fail with ERROR_LOCK_VIOLATION.
-                continue;
-            } else {
+            // The instance lock is empty and, while a vault handle is open, Windows makes
+            // reading a file that holds an exclusive lock fail with ERROR_LOCK_VIOLATION.
+            } else if entry.file_name() != "vault.lock" {
                 let rel = path
                     .strip_prefix(dir)
                     .map_err(io::Error::other)?
