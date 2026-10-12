@@ -128,6 +128,15 @@ describe('launcher.parse', () => {
     expect(() => parseSettings(edit(raw, ['config', 'status', 'mode'], 'fans'))).toThrow(
       'settings.config.status.mode',
     );
+    expect(() => parseSettings(edit(raw, ['config', 'vault', 'idleLockMinutes'], -1))).toThrow(
+      'settings.config.vault.idleLockMinutes',
+    );
+    expect(() => parseSettings(edit(raw, ['config', 'vault', 'hideLockMinutes'], 2.5))).toThrow(
+      'settings.config.vault.hideLockMinutes',
+    );
+    expect(() => parseSettings(edit(raw, ['config', 'vault'], null))).toThrow(
+      'settings.config.vault',
+    );
   });
 
   test('vault status is built field by field, locked and unlocked', async () => {
@@ -138,6 +147,17 @@ describe('launcher.parse', () => {
     expect(() => parseVaultStatus(edit(raw, ['state'], 'open'))).toThrow('vault status.state');
     expect(() => parseVaultStatus(edit(raw, ['failedAttempts'], Number.NaN))).toThrow(
       'vault status.failedAttempts',
+    );
+    // `undeletable` is optional (an older shell leaves it out) but checked when it is there.
+    expect(parseVaultStatus(raw)).not.toHaveProperty('undeletable');
+    const leftovers = await createMockBackend({ undeletable: true }).vaultStatus();
+    expect(leftovers.undeletable).toEqual(['1a2b3c4d/ideas.md']);
+    expect(parseVaultStatus(json(leftovers))).toEqual(leftovers);
+    expect(() => parseVaultStatus(edit(json(leftovers), ['undeletable', 0], 7))).toThrow(
+      'vault status.undeletable[0]',
+    );
+    expect(() => parseVaultStatus(edit(json(leftovers), ['undeletable'], 'ideas.md'))).toThrow(
+      'vault status.undeletable',
     );
   });
 

@@ -71,6 +71,7 @@ export function LauncherProvider({ boot, children }: { boot: Boot; children: Rea
   const [showView, setShowView] = useState<ShowView>('apps');
   const [lockBlocked, setLockBlocked] = useState<LockBlockedDto | undefined>();
   const [vaultOpenNoteSeen, setVaultOpenNoteSeen] = useState(false);
+  const [lockLeftovers, setLockLeftovers] = useState<readonly string[]>([]);
 
   useEffect(() => {
     const unsubscribers: Promise<() => void>[] = [
@@ -92,6 +93,8 @@ export function LauncherProvider({ boot, children }: { boot: Boot; children: Rea
           setVault(status);
           // A vault that locked (or was never open) has nothing left that blocks a lock.
           if (status.state !== 'unlocked') setLockBlocked(undefined);
+          // A new session: what an earlier lock left is the status's to report from here on.
+          else setLockLeftovers([]);
         }),
         backend.on('vaultLockBlocked', setLockBlocked),
       );
@@ -124,6 +127,8 @@ export function LauncherProvider({ boot, children }: { boot: Boot; children: Rea
     lockBlocked,
     vaultOpenNoteSeen,
     markVaultOpenNoteSeen: () => setVaultOpenNoteSeen(true),
+    vaultLeftovers: vault.undeletable ?? lockLeftovers,
+    noteLockLeftovers: setLockLeftovers,
   };
   return <LauncherStateContext value={state}>{children}</LauncherStateContext>;
 }

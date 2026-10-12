@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { screen, waitFor, within } from '@testing-library/react';
 
+import type { VaultStatusDto } from '../../../src/ipc/launcher.types';
 import { renderLauncher } from '../launcher.harness';
 
 const search = () => screen.getByRole('combobox', { name: /Search apps/ });
@@ -118,5 +119,93 @@ describe('vault files', () => {
     await user.click(within(blockedLock()).getByRole('button', { name: 'Cancel' }));
     expect(backend.vaultLock).not.toHaveBeenCalled();
     expect(within(blockedLock()).getByRole('button', { name: 'Lock again' })).toBeInTheDocument();
+  });
+
+  test('plain items in storage/vault: waiting while locked', async () => {
+    const { user } = await renderLauncher({ foreignItems: 3 });
+    await user.type(search(), '/vault{Enter}');
+    expect(
+      settings().getByText(
+        '3 plain items in storage/vault are waiting to be encrypted: they are imported when you unlock.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test('plain items still in storage/vault after unlock are not called encrypted', async () => {
+    const { user } = await renderLauncher({ vault: 'unlocked', foreignItems: 1 });
+    await user.type(search(), '/vault{Enter}');
+    expect(
+      settings().getByText(
+        '1 plain item in storage/vault is not encrypted yet: it could not be imported (in use or a link). The next unlock tries again.',
+      ),
+    ).toBeInTheDocument();
+    expect(settings().queryByText(/were encrypted/)).toBeNull();
+  });
+
+  test('no plain-items line when there are none', async () => {
+    const { user } = await renderLauncher({ vault: 'unlocked' });
+    await user.type(search(), '/vault{Enter}');
+    await file('ideas.md');
+    expect(settings().queryByText(/plain item/)).toBeNull();
+  });
+
+  test('the automatic lock shows the configured timers, never for 0', async () => {
+    const standard = await renderLauncher({ vault: 'unlocked' });
+    await standard.user.type(search(), '/vault{Enter}');
+    expect(settings().getByText(/Locks itself after 10 minutes without use/)).toHaveTextContent(
+      'Locks itself after 10 minutes without use, 5 minutes after the launcher is hidden, and when it quits.',
+    );
+    standard.unmount();
+
+    const custom = await renderLauncher({ idleLockMinutes: 0, hideLockMinutes: 1 });
+    await custom.user.type(search(), '/vault{Enter}');
+    expect(settings().getByText(/Locks itself/)).toHaveTextContent(
+      'Locks itself 1 minute after the launcher is hidden and when it quits, never on idle.',
+    );
+  });
+
+  test('the section says wiping is best effort on flash storage', async () => {
+    const { user } = await renderLauncher();
+    await user.type(search(), '/vault{Enter}');
+    const caveat = settings().getByText(/Wiping is best effort/);
+    expect(caveat).toHaveTextContent(/SSDs, USB flash drives and SD cards/);
+    expect(caveat).toHaveTextContent(/may not reach the cells that held the file/);
+  });
+
+  test('a lock that cannot delete decrypted files says so in a toast and the status card', async () => {
+    const { backend, user } = await renderLauncher({ vault: 'unlocked', undeletable: true });
+    await user.type(search(), '/vault{Enter}');
+    await user.click(settings().getByRole('button', { name: 'Lock now' }));
+    expect(backend.vaultLock).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText("Locked, but 2 decrypted files couldn't be deleted yet"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(settings().getByText('Locked')).toBeInTheDocument());
+    const card = settings().getByText(/couldn't be deleted yet: close the program/);
+    expect(card).toHaveTextContent(
+      "Locked, but 2 decrypted files couldn't be deleted yet: close the program using them. The launcher keeps retrying.",
+    );
+    expect(settings().getByText('ideas.md, aurora-01.jpg')).toBeInTheDocument();
+  });
+
+  test('the shell can report leftover files on the status, and clear them', async () => {
+    const { emit, user } = await renderLauncher({ undeletable: true });
+    await user.type(search(), '/vault{Enter}');
+    expect(settings().getByText(/couldn't be deleted yet/)).toHaveTextContent(
+      "Locked, but 1 decrypted file couldn't be deleted yet: close the program using it. The launcher keeps retrying.",
+    );
+    const cleared: VaultStatusDto = {
+      state: 'locked',
+      kdf: null,
+      kdfUpgradePending: false,
+      failedAttempts: 0,
+      retryAfterMs: null,
+      foreignItems: 0,
+      entryCount: null,
+      sessionFiles: 0,
+      undeletable: [],
+    };
+    emit('vault', cleared);
+    expect(settings().queryByText(/couldn't be deleted yet/)).toBeNull();
   });
 });

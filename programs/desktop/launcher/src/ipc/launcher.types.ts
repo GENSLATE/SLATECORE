@@ -51,6 +51,8 @@ export interface LauncherConfig {
     readonly pinned: boolean;
   };
   readonly status: { readonly mode: StatusMode };
+  /** `[vault]`: when the launcher locks the vault by itself, in minutes (`0`: never). */
+  readonly vault: { readonly idleLockMinutes: number; readonly hideLockMinutes: number };
 }
 
 export interface LauncherKeys {
@@ -209,12 +211,22 @@ export interface VaultStatusDto {
   readonly kdfUpgradePending: boolean;
   readonly failedAttempts: number;
   readonly retryAfterMs: number | null;
-  /** Plain files dropped into `storage/vault`, encrypted at the next unlock. */
+  /**
+   * Plain items directly in `storage/vault` that are not encrypted. While locked they wait for
+   * the next unlock, which imports them; while unlocked they are the ones that unlock could not
+   * import (in use, a link, or changed while it ran).
+   */
   readonly foreignItems: number;
   /** Files in the vault (known only while unlocked). */
   readonly entryCount: number | null;
   /** Decrypted files currently in the session folder. */
   readonly sessionFiles: number;
+  /**
+   * Decrypted files a lock could not delete yet (a program holds them; the shell retries), as
+   * `<session id>/<file name>`. Left out by a shell that does not report them on the status (the
+   * lock report always does).
+   */
+  readonly undeletable?: readonly string[];
 }
 
 export interface EntryDto {

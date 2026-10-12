@@ -36,6 +36,14 @@ export interface LauncherState {
   readonly vaultOpenNoteSeen: boolean;
   /** Marks that note read (in memory only: the next start shows it again). */
   readonly markVaultOpenNoteSeen: () => void;
+  /**
+   * Decrypted files the last lock could not delete (a program holds them). The status says when
+   * the shell reports them there; otherwise the last lock report from this window does, until
+   * the next unlock.
+   */
+  readonly vaultLeftovers: readonly string[];
+  /** Records what a lock from this window could not delete (`undeletable` of its report). */
+  readonly noteLockLeftovers: (paths: readonly string[]) => void;
 }
 
 export const LauncherStateContext = createContext<LauncherState | null>(null);

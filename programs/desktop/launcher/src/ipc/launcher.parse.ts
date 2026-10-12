@@ -73,6 +73,13 @@ function number(value: unknown, what: string): number {
   return value;
 }
 
+/** A whole number of zero or more (counts, minutes). */
+function count(value: unknown, what: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+    throw new PayloadError(what);
+  return value;
+}
+
 function boolean(value: unknown, what: string): boolean {
   if (typeof value !== 'boolean') throw new PayloadError(what);
   return value;
@@ -200,6 +207,7 @@ function launcherConfig(value: unknown, what: string): LauncherConfig {
   const appearance = object(raw['appearance'], `${what}.appearance`);
   const behavior = object(raw['behavior'], `${what}.behavior`);
   const status = object(raw['status'], `${what}.status`);
+  const vault = object(raw['vault'], `${what}.vault`);
   return {
     appearance: {
       theme: oneOf(THEMES)(appearance['theme'], `${what}.appearance.theme`),
@@ -211,6 +219,10 @@ function launcherConfig(value: unknown, what: string): LauncherConfig {
       pinned: boolean(behavior['pinned'], `${what}.behavior.pinned`),
     },
     status: { mode: oneOf(STATUS_MODES)(status['mode'], `${what}.status.mode`) },
+    vault: {
+      idleLockMinutes: count(vault['idleLockMinutes'], `${what}.vault.idleLockMinutes`),
+      hideLockMinutes: count(vault['hideLockMinutes'], `${what}.vault.hideLockMinutes`),
+    },
   };
 }
 
@@ -369,6 +381,9 @@ export function parseVaultStatus(value: unknown): VaultStatusDto {
     foreignItems: number(raw['foreignItems'], 'vault status.foreignItems'),
     entryCount: nullableNumber(raw['entryCount'], 'vault status.entryCount'),
     sessionFiles: number(raw['sessionFiles'], 'vault status.sessionFiles'),
+    ...(raw['undeletable'] === undefined
+      ? {}
+      : { undeletable: strings(raw['undeletable'], 'vault status.undeletable') }),
   };
 }
 

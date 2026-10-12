@@ -351,6 +351,23 @@ describe('the shell contract', () => {
     }
   });
 
+  test('the [vault] timers arrive under the names the Rust config serialises', async () => {
+    const config = await Bun.file(
+      new URL('../../../../../../crates/launcher-core/src/config.rs', import.meta.url),
+    ).text();
+    const match =
+      /rename_all\(serialize = "camelCase", deserialize = "kebab-case"\)\s*\)\]\s*pub struct VaultSettings \{([\s\S]*?)\n\}/.exec(
+        config,
+      );
+    const fields = [...(match?.[1] ?? '').matchAll(/pub (\w+): u32,/g)].map((m) =>
+      snakeToCamel(m[1] ?? ''),
+    );
+    expect(fields).toEqual(['idleLockMinutes', 'hideLockMinutes']);
+    const { settings } = await createMockBackend().context();
+    expect(Object.keys(settings.config.vault)).toEqual(fields);
+    expect(/pub vault: VaultSettings,/.test(config)).toBe(true);
+  });
+
   test('the UI listens to exactly the events the shell emits, by name', async () => {
     const source = await read('src/events.rs');
     const rust = [...source.matchAll(/pub const \w+: &str = "([^"]+)";/g)].map((m) => m[1] ?? '');

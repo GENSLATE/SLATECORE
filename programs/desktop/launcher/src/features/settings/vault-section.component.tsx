@@ -99,6 +99,51 @@ function takeSecret(ref: PasswordRef): string {
   return secret;
 }
 
+const WIPE_CAVEAT =
+  'Wiping is best effort: on SSDs, USB flash drives and SD cards, and on some file systems, an overwrite may not reach the cells that held the file, so traces can survive. Full-drive encryption such as BitLocker To Go protects against that.';
+
+/** `a`, `a and b`, `a, b, and c` (the serial comma keeps long clauses apart). */
+function clauses(items: readonly string[]): string {
+  if (items.length < 3) return items.join(' and ');
+  return `${items.slice(0, -1).join(', ')}, and ${items.at(-1) ?? ''}`;
+}
+
+function minutes(count: number): string {
+  return `${count} ${count === 1 ? 'minute' : 'minutes'}`;
+}
+
+/** When the vault locks itself, from `[vault]` in settings.toml (`0` turns a timer off). */
+export function lockTimersMessage(idleMinutes: number, hideMinutes: number): string {
+  const when = [
+    ...(idleMinutes > 0 ? [`after ${minutes(idleMinutes)} without use`] : []),
+    ...(hideMinutes > 0 ? [`${minutes(hideMinutes)} after the launcher is hidden`] : []),
+    'when it quits',
+  ];
+  const never = [
+    ...(idleMinutes === 0 ? ['on idle'] : []),
+    ...(hideMinutes === 0 ? ['while hidden'] : []),
+  ];
+  return `Locks itself ${clauses(when)}${never.length === 0 ? '' : `, never ${never.join(' or ')}`}.`;
+}
+
+/** Plain items directly in storage/vault: waiting (locked) or left over by the unlock. */
+function foreignMessage(status: VaultStatusDto): string | undefined {
+  const count = status.foreignItems;
+  if (count === 0) return undefined;
+  const one = count === 1;
+  const items = `${count} plain ${one ? 'item' : 'items'} in storage/vault`;
+  if (status.state === 'locked')
+    return `${items} ${one ? 'is' : 'are'} waiting to be encrypted: ${one ? 'it is' : 'they are'} imported when you unlock.`;
+  if (status.state === 'unlocked')
+    return `${items} ${one ? 'is' : 'are'} not encrypted yet: ${one ? 'it' : 'they'} could not be imported (in use or a link). The next unlock tries again.`;
+  return undefined;
+}
+
+/** `Locked, but 2 decrypted files couldn't be deleted yet` (decrypted files a lock left). */
+function leftoversTitle(count: number, locked: boolean): string {
+  return `${locked ? 'Locked, but ' : ''}${count} decrypted ${count === 1 ? 'file' : 'files'} couldn't be deleted yet`;
+}
+
 const NO_RECOVERY =
   'There is no password recovery. If you forget the vault password, nobody can open the files in it, not even GENSLATE.';
 
@@ -109,13 +154,21 @@ const NO_RECOVERY =
  * a store, a URL, a log or an error message.
  */
 export function VaultSection() {
-  const { vault } = useLauncher();
+  const { vault, vaultLeftovers, settings } = useLauncher();
+  const timers = settings.config.vault;
   return (
     <>
-      <VaultStatusCard status={vault} />
+      <VaultStatusCard status={vault} leftovers={vaultLeftovers} />
       {vault.state === 'uninitialized' ? <CreateVault /> : null}
       {vault.state === 'locked' ? <UnlockVault status={vault} /> : null}
       {vault.state === 'unlocked' ? <UnlockedVault status={vault} /> : null}
+      <div className="flex flex-col gap-1.5 px-1 text-fg-muted text-xs leading-4.5">
+        <p>
+          {lockTimersMessage(timers.idleLockMinutes, timers.hideLockMinutes)} The timers are in
+          settings.toml under [vault].
+        </p>
+        <p>{WIPE_CAVEAT}</p>
+      </div>
       <Banner tone="warning" title="Keep the password safe">
         {NO_RECOVERY}
       </Banner>
@@ -123,8 +176,15 @@ export function VaultSection() {
   );
 }
 
-function VaultStatusCard({ status }: { status: VaultStatusDto }) {
+function VaultStatusCard({
+  status,
+  leftovers,
+}: {
+  status: VaultStatusDto;
+  leftovers: readonly string[];
+}) {
   const unlocked = status.state === 'unlocked';
+  const foreign = foreignMessage(status);
   const detail =
     status.state === 'uninitialized'
       ? 'Set a password to start encrypting the files you keep in storage/vault.'
@@ -155,6 +215,21 @@ function VaultStatusCard({ status }: { status: VaultStatusDto }) {
           </Badge>
         </div>
         <p className="text-fg-muted text-xs leading-4.5">{detail}</p>
+        {foreign === undefined ? null : (
+          <p className="text-fg-secondary text-xs leading-4.5">{foreign}</p>
+        )}
+        {leftovers.length === 0 ? null : (
+          <div className="flex items-start gap-1.5 text-warning-fg text-xs leading-4.5">
+            <Icon name="codicon:warning" size={12} className="mt-0.75 shrink-0" />
+            <div className="flex min-w-0 flex-col">
+              <p>
+                {leftoversTitle(leftovers.length, status.state === 'locked')}: close the program
+                using {leftovers.length === 1 ? 'it' : 'them'}. The launcher keeps retrying.
+              </p>
+              <p className="truncate text-fg-secondary">{leftovers.map(nameOf).join(', ')}</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -333,7 +408,8 @@ interface LockFailure {
 }
 
 function UnlockedVault({ status }: { status: VaultStatusDto }) {
-  const { backend, lockBlocked, vaultOpenNoteSeen, markVaultOpenNoteSeen } = useLauncher();
+  const { backend, lockBlocked, vaultOpenNoteSeen, markVaultOpenNoteSeen, noteLockLeftovers } =
+    useLauncher();
   const toast = useToast();
   const report = useReport();
   const [dir, setDir] = useState('');
@@ -417,6 +493,13 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
     (force === true ? backend.vaultLock(true) : backend.vaultLock()).then(
       (result) => {
         setLockFailure(undefined);
+        noteLockLeftovers(result.undeletable);
+        if (result.undeletable.length > 0)
+          toast.add({
+            title: leftoversTitle(result.undeletable.length, true),
+            description: `Close the program using ${listOf(result.undeletable.map(nameOf))}. The launcher keeps retrying.`,
+            type: 'warning',
+          });
         if (result.unsynced.length > 0)
           toast.add({
             title:
@@ -581,14 +664,6 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
       </SettingsGroup>
 
       <ChangePassword />
-
-      <p className="px-1 text-fg-muted text-xs leading-4.5">
-        The vault locks itself after 10 minutes without use, when the launcher stays hidden, and
-        when it quits.
-        {status.foreignItems > 0
-          ? ` ${status.foreignItems} plain files dropped into storage/vault were encrypted.`
-          : ''}
-      </p>
     </>
   );
 }

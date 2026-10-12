@@ -53,6 +53,20 @@ export interface MockOptions {
    * `UNSYNCED_EDITS` and only a forced one locks, dropping the edits.
    */
   readonly lockBlocked?: boolean | undefined;
+  /**
+   * Plain items directly in `storage/vault`: waiting while locked (the mock's unlock imports
+   * them), or left over after an unlock that could not import them.
+   */
+  readonly foreignItems?: number | undefined;
+  /**
+   * A program holds decrypted files, so a lock cannot delete them (named as the shell names them,
+   * `<session id>/<file name>`). Unlocked: the lock report lists two, the status none (an older
+   * shell). Locked: the status lists one, as the shell's `undeletable` status field does.
+   */
+  readonly undeletable?: boolean | undefined;
+  /** `[vault]` timers in minutes. @default 10 and 5 */
+  readonly idleLockMinutes?: number | undefined;
+  readonly hideLockMinutes?: number | undefined;
   /** Why the settings file was ignored (shows the status bar's warning). */
   readonly issue?: string | undefined;
   /**
@@ -293,9 +307,21 @@ function query(name: string): string | null {
 
 /**
  * `?theme=snow-storm&size=l&pinned&status=usage&vault=uninitialized&empty&noThirdParty&issue`
- * (`&vault=unlocked&lockBlocked` plays a blocked automatic lock)
+ * (`&vault=unlocked&lockBlocked` plays a blocked automatic lock, `&undeletable` files a lock
+ * cannot delete, `&foreign=3` plain items in storage/vault, `&idleLock=0&hideLock=15` the timers)
  * in the dev URL tweak the preview (handy for screenshots).
  */
+/** A whole-number query value as a mock option (`{}` when absent or not a number). */
+function minutes<K extends 'foreignItems' | 'idleLockMinutes' | 'hideLockMinutes'>(
+  name: string,
+  key: K,
+): Partial<Record<K, number>> {
+  const value = Number(query(name) ?? Number.NaN);
+  return Number.isSafeInteger(value) && value >= 0
+    ? ({ [key]: value } as Partial<Record<K, number>>)
+    : {};
+}
+
 export function mockOptionsFromUrl(): MockOptions {
   const theme = query('theme');
   const size = query('size');
@@ -310,6 +336,10 @@ export function mockOptionsFromUrl(): MockOptions {
     ...(size === 's' || size === 'l' || size === 'm' ? { size } : {}),
     ...(vault === 'uninitialized' || vault === 'unlocked' ? { vault } : {}),
     lockBlocked: query('lockBlocked') !== null,
+    undeletable: query('undeletable') !== null,
+    ...minutes('foreign', 'foreignItems'),
+    ...minutes('idleLock', 'idleLockMinutes'),
+    ...minutes('hideLock', 'hideLockMinutes'),
     ...(query('issue') === null
       ? {}
       : { issue: 'settings.toml line 3: expected a value after "theme ="' }),
@@ -420,6 +450,10 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
       appearance: { theme: options.theme ?? 'system', size: options.size ?? 'm' },
       behavior: { hideOnBlur: true, hideOnLaunch: true, pinned },
       status: { mode: options.status ?? 'usage' },
+      vault: {
+        idleLockMinutes: options.idleLockMinutes ?? 10,
+        hideLockMinutes: options.hideLockMinutes ?? 5,
+      },
     },
     keybindings: {
       global: { toggle: 'Ctrl+Alt+Space' },
@@ -491,6 +525,10 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
     },
   });
   let sessionFiles = 0;
+  let foreignItems = options.foreignItems ?? 0;
+  /** Files the last lock could not delete; reported on the status only in the locked preset. */
+  let leftovers: readonly string[] | undefined =
+    options.undeletable === true && initial === 'locked' ? ['1a2b3c4d/ideas.md'] : undefined;
 
   const vaultStatus = (): VaultStatusDto => {
     const wait = throttledUntil - Date.now();
@@ -500,12 +538,13 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
       kdfUpgradePending: false,
       failedAttempts,
       retryAfterMs: wait > 0 ? wait : null,
-      foreignItems: 0,
+      foreignItems,
       entryCount:
         vaultState === 'unlocked'
           ? vaultEntries.filter((entry) => entry.kind === 'file').length
           : null,
       sessionFiles,
+      ...(leftovers === undefined ? {} : { undeletable: leftovers }),
     };
   };
   const vaultChanged = () => {
@@ -648,6 +687,8 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
       await later(700);
       checkPassword(password);
       vaultState = 'unlocked';
+      foreignItems = 0;
+      if (leftovers !== undefined) leftovers = [];
       return vaultChanged();
     },
     vaultLock: async (force) => {
@@ -664,7 +705,9 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
       sessionFiles = 0;
       vaultState = 'locked';
       vaultChanged();
-      return { synced: [], unsynced: [...unsynced], wipedFiles, undeletable: [] };
+      const undeletable =
+        options.undeletable === true ? ['1a2b3c4d/ideas.md', '1a2b3c4d/aurora-01.jpg'] : [];
+      return { synced: [], unsynced: [...unsynced], wipedFiles, undeletable };
     },
     vaultChangePassword: async (current, next) => {
       requireUnlocked();
