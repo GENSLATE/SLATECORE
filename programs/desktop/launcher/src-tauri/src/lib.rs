@@ -66,6 +66,7 @@ mod guards;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use genslate_launcher_core::APP_NAME;
 use genslate_launcher_core::config::{LogLevel, Settings};
@@ -74,6 +75,7 @@ use tauri::utils::config::{AppDirectoriesOverride, AppDirectoryOverrides};
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use tauri_plugin_log::{Target, TargetKind};
 
+use crate::error::AppError;
 use crate::fatal::{Fatal, SetupStep};
 use crate::state::{Launcher, VaultSlot};
 use crate::vault_dto::VaultErrorDto;
@@ -89,40 +91,71 @@ pub fn run() {
     }
 }
 
+/// How long the crash box may stay up before the process ends anyway.
+const CRASH_BOX_BOUND: Duration = Duration::from_secs(30);
+
 /// The last line of defence: with `panic = "abort"` and no console a panic is a silent exit, so
-/// the hook shows a generic message box first (once, even when the box itself panics or another
-/// thread panics meanwhile) and logs where it happened. The message holds no path and not the
-/// panic text, which can hold anything.
+/// the hook shows a generic message box first and logs where it happened (file name and line
+/// only). The box is shown from a thread of its own and the panicking thread waits for it at
+/// most [`CRASH_BOX_BOUND`]; then the process is aborted whatever the box is doing. That way a
+/// panic on a background thread (the vault's auto-lock, say) can never leave the rest of the
+/// launcher running with an open box, and a second panic while the box is up (it pumps window
+/// messages) finds `SHOWN` set, shows nothing and cannot recurse. The message holds no path and
+/// not the panic text, which can hold anything. Dev builds keep the default stderr text too.
 fn install_panic_hook() {
     static SHOWN: AtomicBool = AtomicBool::new(false);
-    std::panic::set_hook(Box::new(|info| {
+    #[cfg(debug_assertions)]
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        #[cfg(debug_assertions)]
+        previous(info);
         if let Some(location) = info.location() {
-            log::error!("panic at {}:{}", location.file(), location.line());
+            log::error!(
+                "panic at {}",
+                fatal::panic_place(location.file(), location.line())
+            );
         }
         if fatal::first_call(&SHOWN) {
-            dialog::show(&Fatal::Crashed);
+            fatal::bounded(CRASH_BOX_BOUND, || dialog::show(&Fatal::Crashed));
+            std::process::abort();
         }
     }));
 }
 
 /// A step of `setup` failed: Tauri would turn the error into a panic, so show the box, log the
-/// detail (it can name a path, the box never does) and end the process with status 1.
-fn abort_start(step: SetupStep, error: &dyn std::fmt::Display) -> ! {
-    log::error!("start-up failed ({step:?}): {error}");
+/// error's kind and its text with every path cut out (Tauri's can hold one) and end the process
+/// with status 1.
+fn abort_start(step: SetupStep, error: &AppError) -> ! {
+    log::error!(
+        "start-up failed ({step:?}, {}): {}",
+        error.kind(),
+        error_text::without_paths(&error.message())
+    );
     dialog::show(&Fatal::from(step));
     std::process::exit(1)
 }
 
-/// Before any window exists: a web profile another runtime wrote is emptied, and so is the
-/// launcher's own scratch folder. Best effort, each failure only reaches the log.
+/// Before any window exists: a web profile another runtime wrote is emptied. Best effort, a
+/// failure only reaches the log.
 fn clear_stale_data(paths: &AppPaths, stamp: &str) {
     match web_data::reset_if_runtime_changed(paths, stamp) {
         Ok(true) => log::info!("the WebView2 data folder was reset for the new runtime"),
         Ok(false) => {}
         Err(error) => log::warn!("could not reset the WebView2 data folder: {error}"),
     }
-    // The launcher's own scratch folder (`TEMP`) is emptied too: plaintext a program left
-    // there must not outlive its use. Best effort, counts only in the log.
+}
+
+/// Empties the launcher's own scratch folder (`TEMP`): plaintext a program left there must not
+/// outlive its use. It runs only once the vault is open, because opening it takes the instance
+/// lock: a second launch that reached this far under another spelling of the same folder (the
+/// single-instance identity follows the path text) would otherwise empty the running launcher's
+/// scratch files. Without the lock (the vault is unavailable) nothing is emptied. Best effort,
+/// counts only in the log.
+fn clear_scratch_folder(paths: &AppPaths, vault: &VaultSlot) {
+    if !matches!(vault, VaultSlot::Ready(_)) {
+        log::info!("the temporary folder was not emptied: this launcher does not hold the vault");
+        return;
+    }
     match temp_clean::empty_temp(&paths.temp_dir, &paths.cache_dir) {
         Ok(report) if report.removed + report.failed > 0 => log::info!(
             "emptied the temporary folder ({} removed, {} in use)",
@@ -183,6 +216,7 @@ fn try_run() -> Result<(), Fatal> {
             );
             clear_stale_data(&paths, &stamp);
             let vault = open_vault(&paths);
+            clear_scratch_folder(&paths, &vault);
             app.manage(Launcher::new(paths.clone(), vault));
             let launcher = handle.state::<Launcher>();
             if let Some(issue) = &launcher.settings().issue {
@@ -191,21 +225,21 @@ fn try_run() -> Result<(), Fatal> {
 
             // Errors here would make Tauri panic (and the user see nothing): each becomes a box.
             window::create(handle, &launcher)
-                .unwrap_or_else(|error| abort_start(SetupStep::Window, &error.message()));
+                .unwrap_or_else(|error| abort_start(SetupStep::Window, &error));
             // A tray menu that fails to build costs the right-click menu, not the launcher.
             if let Err(error) = tray_menu::create(handle, &launcher) {
                 log::warn!("the tray menu window could not be created: {}", error.message());
             }
             // The tray icon is the only way back to a hidden launcher: no icon, no launcher.
             tray::create(handle)
-                .unwrap_or_else(|error| abort_start(SetupStep::Tray, &error.message()));
+                .unwrap_or_else(|error| abort_start(SetupStep::Tray, &error));
             hotkey::register(handle, &launcher.settings().keybindings.global.toggle);
             reload::start(handle);
             window::spawn_hit_test(handle.clone());
             monitor::spawn(handle.clone());
             vault_commands::spawn_background(handle.clone());
             window::show(handle)
-                .unwrap_or_else(|error| abort_start(SetupStep::Show, &error.message()));
+                .unwrap_or_else(|error| abort_start(SetupStep::Show, &error));
             Ok(())
         })
         .on_window_event(on_window_event)

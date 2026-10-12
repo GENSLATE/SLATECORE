@@ -4,6 +4,9 @@
 //! goes into a message box (`dialog`). The wording is chosen here, free of any GUI code.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use crate::brand::PRODUCT;
 use crate::runtime::RuntimeError;
@@ -53,6 +56,27 @@ impl From<SetupStep> for Fatal {
 /// inside the dialog itself) does not show a second box or recurse.
 pub fn first_call(flag: &AtomicBool) -> bool {
     !flag.swap(true, Ordering::SeqCst)
+}
+
+/// Runs `work` on a fresh thread and waits at most `bound` for it. `true` when it finished,
+/// `false` when it was still running at the deadline or panicked. The thread is left behind in
+/// the first case: the caller ends the process.
+pub fn bounded(bound: Duration, work: impl FnOnce() + Send + 'static) -> bool {
+    let (done, finished) = mpsc::channel();
+    let spawned = thread::Builder::new()
+        .name("bounded".into())
+        .spawn(move || {
+            work();
+            // The receiver may have given up already.
+            let _ = done.send(());
+        });
+    spawned.is_ok() && finished.recv_timeout(bound).is_ok()
+}
+
+/// `file:line` of a panic with the folders cut off (they hold the build machine's layout).
+pub fn panic_place(file: &str, line: u32) -> String {
+    let name = file.rsplit(['/', '\\']).next().unwrap_or(file); // cspell:ignore rsplit
+    format!("{name}:{line}")
 }
 
 impl From<RuntimeError> for Fatal {
@@ -131,6 +155,43 @@ pub fn message(fatal: &Fatal) -> Message {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn bounded_work_that_finishes_reports_true() {
+        assert!(bounded(Duration::from_secs(5), || {}));
+    }
+
+    #[test]
+    fn bounded_work_that_hangs_is_given_up_at_the_deadline() {
+        let start = Instant::now();
+        let finished = bounded(Duration::from_millis(100), || {
+            thread::sleep(Duration::from_secs(5));
+        });
+        assert!(!finished);
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "waited for the work"
+        );
+    }
+
+    #[test]
+    fn bounded_work_that_panics_is_not_waited_for() {
+        let start = Instant::now();
+        let finished = bounded(Duration::from_secs(5), || panic!("on purpose"));
+        assert!(!finished);
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn a_panic_place_keeps_the_file_name_only() {
+        assert_eq!(
+            panic_place("src/vault_commands.rs", 12),
+            "vault_commands.rs:12"
+        );
+        assert_eq!(panic_place(r"C:\Users\jane\proj\src\lib.rs", 7), "lib.rs:7");
+        assert_eq!(panic_place("lib.rs", 1), "lib.rs:1");
+    }
     use crate::runtime::{Version, select};
     use std::error::Error;
 

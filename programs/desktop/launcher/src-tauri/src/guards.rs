@@ -620,14 +620,21 @@ fn start_up_runs_in_the_documented_order() -> TestResult {
         "the single-instance plugin is the first plugin"
     );
     assert!(at("tauri_plugin_single_instance::init")? < at("log_plugin(&paths")?);
-    // Before the first window: the web data reset, the scratch folder and the vault (which wipes
-    // stale sessions). The helper holds the two clean-ups; setup calls it.
+    // Before the first window: the web data reset and the vault (which wipes stale sessions).
+    // The scratch folder is emptied only once the vault is open: its instance lock is what keeps
+    // a second launch under another path spelling from emptying the running launcher's TEMP.
     assert!(at("clear_stale_data(&paths, &stamp)")? < at("open_vault(&paths)")?);
-    assert!(at("clear_stale_data(&paths, &stamp)")? < at("window::create(")?);
-    let helper = &lib[at("fn clear_stale_data")?..at("fn try_run")?];
-    assert!(helper.contains("reset_if_runtime_changed"));
-    assert!(helper.contains("temp_clean::empty_temp(&paths.temp_dir, &paths.cache_dir)"));
-    assert!(at("open_vault(&paths)")? < at("window::create(")?);
+    assert!(at("open_vault(&paths)")? < at("clear_scratch_folder(&paths, &vault)")?);
+    assert!(at("clear_scratch_folder(&paths, &vault)")? < at("window::create(")?);
+    let stale = &lib[at("fn clear_stale_data")?..at("fn clear_scratch_folder")?];
+    assert!(stale.contains("reset_if_runtime_changed"));
+    assert!(
+        !stale.contains("empty_temp"),
+        "TEMP is not emptied before the vault lock"
+    );
+    let scratch = &lib[at("fn clear_scratch_folder")?..at("fn try_run")?];
+    assert!(scratch.contains("temp_clean::empty_temp(&paths.temp_dir, &paths.cache_dir)"));
+    assert!(scratch.contains("VaultSlot::Ready"));
     assert!(at("window::create(")? < at("window::show(handle)")?);
     // The vault is locked when the app exits.
     assert!(lib.contains("RunEvent::Exit => lock_vault_for_exit"));
@@ -671,7 +678,22 @@ fn a_failed_setup_step_shows_a_box_instead_of_a_silent_panic() -> TestResult {
             .ok_or("no hook call")?
             < after_run.find("try_run()").ok_or("no try_run call")?
     );
-    assert!(lib.contains("dialog::show(&Fatal::Crashed)"));
+    // The box is shown from its own thread with a bound, then the process is aborted whatever
+    // the box does: a panic on the vault's thread must not leave the launcher running.
+    let hook = &lib[lib.find("fn install_panic_hook").ok_or("no hook")?
+        ..lib.find("fn abort_start").ok_or("no abort_start")?];
+    assert!(hook.contains("fatal::bounded(CRASH_BOX_BOUND, || dialog::show(&Fatal::Crashed))"));
+    assert!(hook.contains("std::process::abort()"));
+    assert!(
+        hook.find("fatal::bounded").ok_or("no bounded")?
+            < hook.find("std::process::abort()").ok_or("no abort")?
+    );
+    // Locations are logged as a file name, and abort_start logs no unfiltered error text.
+    assert!(hook.contains("fatal::panic_place("));
+    assert!(!hook.contains("location.file()}"));
+    let abort_start = &lib[lib.find("fn abort_start").ok_or("no abort_start")?
+        ..lib.find("fn clear_stale_data").ok_or("no clear")?];
+    assert!(abort_start.contains("error_text::without_paths("));
     Ok(())
 }
 

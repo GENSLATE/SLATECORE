@@ -30,12 +30,18 @@ fn refuse(why: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, why)
 }
 
+/// `inner` is below `outer`, by whole path components, and is not `outer` itself.
+fn is_strictly_inside(inner: &Path, outer: &Path) -> bool {
+    inner != outer && inner.starts_with(outer)
+}
+
 /// Empties `temp_dir`, which must lie strictly inside `cache_dir`.
 ///
 /// # Errors
 ///
 /// `InvalidInput` when `temp_dir` is not strictly inside `cache_dir`, contains a `..`, or is
-/// itself a link; otherwise the error from listing it. A folder that does not exist is a success
+/// itself a link, or when either folder resolves (links above it followed) to a place where it
+/// is not strictly inside the other; otherwise the error from listing it. A folder that does not exist is a success
 /// with nothing removed.
 pub fn empty_temp(temp_dir: &Path, cache_dir: &Path) -> io::Result<TempReport> {
     let has_dots = temp_dir
@@ -45,7 +51,7 @@ pub fn empty_temp(temp_dir: &Path, cache_dir: &Path) -> io::Result<TempReport> {
     if has_dots {
         return Err(refuse("the temporary folder path contains .."));
     }
-    if !temp_dir.starts_with(cache_dir) || temp_dir == cache_dir {
+    if !is_strictly_inside(temp_dir, cache_dir) {
         return Err(refuse(
             "the temporary folder is not inside the cache folder",
         ));
@@ -58,6 +64,15 @@ pub fn empty_temp(temp_dir: &Path, cache_dir: &Path) -> io::Result<TempReport> {
     if !meta.is_dir() {
         // A link, or a file where the folder should be: not ours to empty or follow.
         return Err(refuse("the temporary folder is not a real folder"));
+    }
+    // A link anywhere above the folder (a junction for `cache`, say) would make the lexical
+    // check above lie: compare where both really are.
+    let real_temp = fs::canonicalize(temp_dir)?;
+    let real_cache = fs::canonicalize(cache_dir)?;
+    if !is_strictly_inside(&real_temp, &real_cache) {
+        return Err(refuse(
+            "the temporary folder resolves outside the cache folder",
+        ));
     }
     let mut report = TempReport::default();
     for entry in fs::read_dir(temp_dir)? {
@@ -89,6 +104,49 @@ mod tests {
     use std::error::Error;
 
     type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn inside_means_below_by_whole_components() {
+        assert!(is_strictly_inside(
+            Path::new("/a/cache/tmp"),
+            Path::new("/a/cache")
+        ));
+        assert!(!is_strictly_inside(
+            Path::new("/a/cache"),
+            Path::new("/a/cache")
+        ));
+        assert!(!is_strictly_inside(
+            Path::new("/a/cache2/tmp"),
+            Path::new("/a/cache")
+        ));
+        assert!(!is_strictly_inside(Path::new("/a"), Path::new("/a/cache")));
+    }
+
+    #[test]
+    fn a_missing_cache_folder_is_an_error_not_a_clean_up() -> TestResult {
+        // The folder to empty exists but the folder that should contain it does not resolve.
+        let tmp = TempTree::new()?.file("elsewhere/tmp/a.tmp", "x")?;
+        let result = empty_temp(&tmp.join("elsewhere/tmp"), &tmp.join("cache"));
+        assert!(result.is_err());
+        assert!(
+            tmp.join("elsewhere/tmp/a.tmp").is_file(),
+            "nothing was removed"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_folder_that_only_looks_inside_after_resolving_is_refused() -> TestResult {
+        // `cache/./x` is not a `..` path, yet a plain prefix check on unresolved names would let
+        // a sibling that merely shares the text through: the resolved comparison must not.
+        let tmp = TempTree::new()?
+            .file("cache/tmp/a.tmp", "x")?
+            .file("other/tmp/b.tmp", "y")?;
+        let result = empty_temp(&tmp.join("other/tmp"), &tmp.join("cache"));
+        assert!(result.is_err());
+        assert!(tmp.join("other/tmp/b.tmp").is_file());
+        Ok(())
+    }
 
     #[test]
     fn it_empties_files_and_nested_folders_and_keeps_the_folder() -> TestResult {

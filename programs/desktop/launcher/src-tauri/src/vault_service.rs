@@ -50,6 +50,12 @@ const MIB: u64 = 1024 * 1024;
 /// `available` is `None` when it is not known, which is the case today: reading it needs either
 /// `unsafe` or a system-information crate in this crate's manifest, so the shell uses the fixed
 /// [`FALLBACK_KDF_LIMIT`].
+///
+/// A limit of this kind is a forward-compatibility limit by design: a vault whose header asks
+/// for more memory than the cap (made by a later version, or by a machine with more memory and a
+/// bigger setting) is refused with the vault's `OutOfMemory` error instead of being opened, so
+/// with the fixed 512 MiB cap such a vault cannot be unlocked on this launcher. Raise the cap
+/// (or pass the available memory) when the format's cost settings grow.
 pub fn kdf_limit_bytes(available: Option<u64>) -> u64 {
     let own = u64::from(KdfParams::STANDARD.m_cost_kib) * 1024;
     available
