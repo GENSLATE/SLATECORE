@@ -30,3 +30,12 @@
 - **Dropped-in originals are wiped through one exclusive handle** (Windows `share_mode(0)` plus the reparse-point flag) and only after the vault commit; a replaced, grown or linked file is never unlinked, it stays foreign. Residual: Windows has no stable hard-link count in std, so a hard-linked original also zeroes the content seen through its other name (the content is safe in the vault). Documented, accepted for v1.
 - **Windows-only paths are lint-checked, not executed, in the cloud.** The Windows branches of the foreign-ingest tests must be run on the Windows machine before Task 4 is closed.
 - **Deferred:** a dropped-in folder whose files cannot be wiped is imported again as `Name (N)` at each unlock; `upgraded_to` can exceed the work cap; Unix FIFO and mode-000 edge cases.
+
+## 2026-10-12 Whole-branch review rulings
+
+- **Unix code in a Windows-only repo.** `crates/vault/src/session.rs` (about 14 `cfg(unix)` blocks) and one in `crates/paths/src/environment.rs` exist only so the crates can be built and tested in the Linux cloud sandbox. They are never shipped; the product target is `x86_64-pc-windows-msvc`. Keep them minimal; do not add new ones outside tests.
+- **The Windows machine is the only place the shell, the Windows-only vault branches and the no-trace tiers really run.** Cloud work compile-checks them for the Windows target and runs the Tauri-free parts in a scratch crate.
+- **Code-bearing vault files are not opened in place** (`BLOCKED_TYPE`, the list is in `src-tauri/src/open_policy.rs` and mirrored in the UI by a parity test); Export is the way out. Import strips Mark-of-the-Web, which is why.
+- **A blocked automatic vault lock never force-wipes unsaved edits.** The UI warns and offers "Lock and discard unsaved edits" with a confirm step. Revisit if the owner prefers wiping.
+- **GENSLATE licence text is the owner's.** Release builds (`--release` or a tag) refuse to package while `genslate.LICENSE.md` is empty. Third-party font and icon notices ship now; compiled-library notices (Tauri, React, RustCrypto) still need to be added before a tagged release.
+- **WebView2 HKCU keys.** With the PC's Evergreen runtime, WebView2 itself writes keys under `HKCU\Software\Microsoft\EdgeUpdate` and `\EdgeWebView`. The launcher cannot control this; Tier 2 lists them as known limits and the README says so. Whether the bundled fixed-version runtime avoids them is unverified.

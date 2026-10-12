@@ -68,22 +68,12 @@ starting `claude/`, `cursor/`, `codex/`, `copilot/`, `devin/`, `jules/` or `anti
 `Co-authored-by` (for example a gmail address) passes, and plain mentions of `.claude/` or
 `CLAUDE.md` pass. `--message <file> --fix` strips the offending lines from the message file.
 
-## Expected `cargo machete` findings (TODO until the owning tasks land)
+## Cargo dependency checks
 
-`cargo machete` cannot be configured from this folder, so the dependencies the workspace
-declares ahead of their first use will be reported until the code that uses them exists. Re-run
-it after the crates are implemented and move anything that is still reported either into the
-code that uses it or into `[workspace.metadata.cargo-machete] ignored` in the root `Cargo.toml`
-(owned by the workspace task):
-
-- `programs/desktop/launcher/src-tauri`: `tauri-plugin-opener`, `notify`, `notify-debouncer-full`,
-  `rfd`, `winreg`, `secrecy` and the other plugin crates until the shell wires them.
-- `crates/vault`: `subtle` (declared in the workspace, not yet in a crate), `serde_json`,
-  `zeroize`, `unicode-normalization` until the vault code uses them.
-- `crates/launcher-core`: `notify`, `nvml-wrapper` (optional `nvidia` feature),
-  `pelite`, `ico`, `rust-ini`, `sysinfo`, `toml_edit` until the catalog and system modules land.
-- Test-only crates (`proptest`, `tempfile`, `genslate-testing`) in `[dev-dependencies]` are
-  reported only while no test uses them.
+`cargo machete` and `cargo deny` run in CI (`bun run check --rust`) and need the tools installed
+(`cargo install cargo-machete cargo-deny` at the pinned versions in `.github/workflows`). A
+dependency that is declared but unused is reported by machete: remove it, or list it in
+`[workspace.metadata.cargo-machete] ignored` in the root `Cargo.toml` with a reason.
 
 The matching knip entries for npm packages are in `.config/knip.json` (`ignoreDependencies`).
 
