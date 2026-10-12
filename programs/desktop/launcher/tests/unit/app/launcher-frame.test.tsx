@@ -163,7 +163,7 @@ describe('launcher frame', () => {
     for (const selector of ['.launcher-frame,', '.launcher-frame-body,', '.launcher-slide,']) {
       expect(reduced).toContain(selector);
     }
-    expect(reduced).toMatch(/transition-duration:\s*0ms/);
+    expect(reduced).toContain('transition-duration: 0ms');
   });
 
   test('the_rail_and_the_left_clusters_slide_with_the_left_edge', async () => {

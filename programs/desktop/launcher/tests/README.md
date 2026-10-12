@@ -14,7 +14,7 @@ The mock backend reads flags from the URL (`mockOptionsFromUrl` in `src/ipc/laun
 `theme`, `size`, `pinned`, `status`, `vault`, `empty`, `noThirdParty`, `issue`, `lockBlocked`,
 `undeletable`, `foreign`, `idleLock`, `hideLock`). Views that need no flag, only input:
 
-- **Search with no results:** type `zzzzqq` into the search box ("No apps match ...").
+- **Search with no results:** type `nonexistent` into the search box ("No apps match ...").
 - **Vault setup error:** open `/?vault=uninitialized`, open Settings (the gear in the rail), choose
   Vault, type `short` in both password fields and press Enter ("Too short: use at least 8 bytes").
 - **Window context menu:** right-click the titlebar (the strip with the wordmark and the pin and
