@@ -183,7 +183,7 @@ describe('vault files', () => {
     await waitFor(() => expect(settings().getByText('Locked')).toBeInTheDocument());
     const card = settings().getByText(/couldn't be deleted yet: close the program/);
     expect(card).toHaveTextContent(
-      "Locked, but 2 decrypted files couldn't be deleted yet: close the program using them. The launcher keeps retrying.",
+      "Locked, but 2 decrypted files couldn't be deleted yet: close the program using them, then lock the vault again.",
     );
     expect(settings().getByText('ideas.md, aurora-01.jpg')).toBeInTheDocument();
   });
@@ -192,7 +192,7 @@ describe('vault files', () => {
     const { emit, user } = await renderLauncher({ undeletable: true });
     await user.type(search(), '/vault{Enter}');
     expect(settings().getByText(/couldn't be deleted yet/)).toHaveTextContent(
-      "Locked, but 1 decrypted file couldn't be deleted yet: close the program using it. The launcher keeps retrying.",
+      "Locked, but 1 decrypted file couldn't be deleted yet: close the program using it, then lock the vault again.",
     );
     const cleared: VaultStatusDto = {
       state: 'locked',

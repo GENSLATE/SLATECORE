@@ -224,7 +224,7 @@ function VaultStatusCard({
             <div className="flex min-w-0 flex-col">
               <p>
                 {leftoversTitle(leftovers.length, status.state === 'locked')}: close the program
-                using {leftovers.length === 1 ? 'it' : 'them'}. The launcher keeps retrying.
+                using {leftovers.length === 1 ? 'it' : 'them'}, then lock the vault again.
               </p>
               <p className="truncate text-fg-secondary">{leftovers.map(nameOf).join(', ')}</p>
             </div>
@@ -497,7 +497,7 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
         if (result.undeletable.length > 0)
           toast.add({
             title: leftoversTitle(result.undeletable.length, true),
-            description: `Close the program using ${listOf(result.undeletable.map(nameOf))}. The launcher keeps retrying.`,
+            description: `Close the program using ${listOf(result.undeletable.map(nameOf))}, then lock the vault again.`,
             type: 'warning',
           });
         if (result.unsynced.length > 0)
