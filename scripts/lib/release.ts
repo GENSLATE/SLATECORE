@@ -60,6 +60,27 @@ export async function looksLikeWindowsExe(path: string): Promise<boolean> {
 }
 
 /**
+ * A tag build publishes `slatecore-launcher-<version>-*.zip`, so the pushed tag has to be
+ * `v<version>`: a `v1.0.0` tag on a 0.1.0 package would ship 0.1.0 zips under a 1.0.0 release.
+ * Other builds (branches, pull requests, a local run) are not tagged and pass.
+ */
+export function assertTagMatchesVersion(
+  env: Readonly<Record<string, string | undefined>>,
+  version: string,
+): void {
+  if (env['GITHUB_REF_TYPE'] !== 'tag') return;
+  const name = env['GITHUB_REF_NAME'];
+  if (name === undefined || name === '') {
+    throw new Error('a tag build needs GITHUB_REF_NAME to check the tag against the version');
+  }
+  if (name !== `v${version}`) {
+    throw new Error(
+      `the tag ${name} does not match the launcher version: expected v${version} (the zips are named for ${version})`,
+    );
+  }
+}
+
+/**
  * The license files a release must carry but that are empty or missing: the GENSLATE license
  * text is the owner's to supply, and nobody else writes it.
  */

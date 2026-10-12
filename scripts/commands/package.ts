@@ -13,6 +13,7 @@ import { log } from '../lib/log';
 import { fromRoot, ROOT } from '../lib/paths';
 import {
   assertLockResolved,
+  assertTagMatchesVersion,
   buildRelease,
   licenseGaps,
   looksLikeWindowsExe,
@@ -65,6 +66,13 @@ The build runs on Windows only; elsewhere use --exe with a build from a Windows 
     const exe = values.exe === undefined ? fromRoot(BUILT_EXE) : resolve(values.exe);
     const releaseDir = values.out === undefined ? fromRoot('release') : resolve(values.out);
     const version = await readVersion(ROOT);
+
+    // The tag names the release: a mismatch would publish the wrong version's zips.
+    try {
+      assertTagMatchesVersion(process.env, version);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
 
     // A tag build is a release build, as is --release. A missing license text stops it before the
     // long build; any other build only warns.

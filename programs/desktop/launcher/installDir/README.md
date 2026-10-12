@@ -23,7 +23,8 @@ Windows 10 or 11 on 64-bit PCs. Start it normally, not as administrator.
 - `other\launcher\` holds the launcher's settings (`configs`), logs, cache and database.
 - `storage\users\shared\` holds your Desktop, Documents, Downloads, Music, Pictures and Videos
   folders. `storage\vault\` holds the encrypted vault: only the vault is encrypted, and a
-  forgotten vault password cannot be recovered.
+  forgotten vault password cannot be recovered. Wiping vault files is best effort on SSDs, flash
+  drives and some file systems: they may keep old copies of data that the launcher has deleted.
 
 Everything the launcher writes goes into this folder. It does not write to the registry, to
 `%APPDATA%`, `%LOCALAPPDATA%`, the Start Menu or the PC's temporary folder, and it keeps its
@@ -49,11 +50,17 @@ programs, outside its control:
   they write; some leave files or registry entries on the PC.
 - WebView2 and the graphics driver may keep shader caches, crash reports and diagnostic data in
   Windows' own folders.
+- When the launcher uses the PC's own (Evergreen) WebView2 runtime, that runtime may write its own
+  updater and preference keys in the registry, under `HKCU\Software\Microsoft\EdgeUpdate`
+  (`ClientState`) and `HKCU\Software\Microsoft\EdgeWebView` (`PreferenceMACs`,
+  `StabilityMetrics`). The launcher cannot stop that. The separate runtime add-on (see WebView2
+  above) lets it use its own fixed-version runtime instead of the PC's; that it avoids these keys
+  has not been verified.
 - Security software and Windows Error Reporting may log what ran.
 
 If you need more than this, use a PC you trust and clear the Windows records yourself.
 
 ## More
 
-- Documents: `other\launcher\documents\`.
+- Licenses and notices: `other\launcher\licenses\`.
 - GENSLATE is the developer and publisher. SLATECORE is the suite of apps this launcher belongs to.

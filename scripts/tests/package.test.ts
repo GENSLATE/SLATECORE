@@ -13,6 +13,7 @@ import { ROOT } from '../lib/paths';
 import {
   archiveOldBuilds,
   assertLockResolved,
+  assertTagMatchesVersion,
   buildRelease,
   licenseGaps,
   looksLikeWindowsExe,
@@ -251,6 +252,44 @@ describe('portable base zip', () => {
     expect(readme).not.toMatch(/[A-Za-z]:\\|\/home\/|\/Users\//);
   });
 
+  test('package_readme_states_the_flash_wipe_limit_and_points_only_at_folders_that_ship_content', async () => {
+    const entries = await buildBase(ROOT, '7.8.9');
+    const readme = text(entries['README.md']);
+    // Deleting is not erasing on flash: the user is told so where the vault is described.
+    expect(readme.replace(/\s+/g, ' ')).toContain(
+      'Wiping vault files is best effort on SSDs, flash drives and some file systems',
+    );
+    // other/launcher/documents/ ships empty (0-byte seeds are skipped), so nothing may send users there.
+    expect(readme).not.toMatch(/launcher\\documents/i);
+    // Every folder the README names under other\launcher\ exists in the zip.
+    for (const match of readme.matchAll(/other\\launcher\\([a-z]+)\\/g)) {
+      const folder = `other/launcher/${match[1]}/`;
+      expect(
+        Object.keys(entries).some((name) => name.startsWith(folder)),
+        folder,
+      ).toBe(true);
+    }
+  });
+
+  test('package_readme_lists_the_webview2_registry_keys_and_does_not_claim_more_than_is_verified_for_the_add_on', async () => {
+    const readme = text((await buildBase(ROOT, '7.8.9'))['README.md']).replace(/\s+/g, ' ');
+    // With the PC's own Evergreen runtime, WebView2 writes its updater/preference keys itself.
+    for (const word of [
+      'Evergreen',
+      'HKCU\\Software\\Microsoft\\EdgeUpdate',
+      'HKCU\\Software\\Microsoft\\EdgeWebView',
+      'ClientState',
+      'PreferenceMACs',
+      'StabilityMetrics',
+    ]) {
+      expect(readme, word).toContain(word);
+    }
+    // The add-on is named as the way not to rely on the PC's runtime; the effect is unverified.
+    expect(readme).toMatch(/runtime add-on/);
+    expect(readme).toMatch(/has not been verified/);
+    expect(readme).not.toMatch(/removes those keys|no longer writes/i);
+  });
+
   test('package_zip_paths_are_relative_forward_slashed_and_sorted', async () => {
     const names = Object.keys(await buildBase(ROOT));
     for (const name of names) {
@@ -272,8 +311,12 @@ describe('portable base zip', () => {
   test('package_ships_the_default_settings_whatever_the_working_tree_holds', async () => {
     const entries = await buildBase(ROOT);
     expect(text(entries['other/launcher/configs/settings.toml'])).toBe(DEFAULT_SETTINGS);
-    // The default is comments only: valid TOML with no keys, which the launcher reads as defaults.
+    // The default is comments only: valid TOML with no keys, which the launcher reads as defaults
+    // (crates/launcher-core config test `missing_and_empty_files_are_defaults`). This constant, not
+    // the dev seed in the checkout, is what the package ships.
     expect(Bun.TOML.parse(DEFAULT_SETTINGS)).toEqual({});
+    for (const line of DEFAULT_SETTINGS.split('\n')) expect(line, line).toMatch(/^(#.*)?$/);
+    expect(DEFAULT_SETTINGS).not.toMatch(/[A-Za-z]:[\\/]|\/home\/|\/Users\//);
   });
 
   test('package_zip_carries_the_third_party_notice_with_the_real_license_texts', async () => {
@@ -696,6 +739,25 @@ describe('webview2 runtime add-on', () => {
   });
 });
 
+describe('release tag', () => {
+  test('a_tag_build_must_be_named_v_plus_the_launcher_version', () => {
+    const tag = (name?: string) => ({
+      GITHUB_REF_TYPE: 'tag',
+      ...(name === undefined ? {} : { GITHUB_REF_NAME: name }),
+    });
+    expect(() => assertTagMatchesVersion(tag('v0.1.0'), '0.1.0')).not.toThrow();
+    for (const wrong of ['v1.0.0', '0.1.0', 'V0.1.0', 'v0.1.0-rc1', 'v0.1.00']) {
+      expect(() => assertTagMatchesVersion(tag(wrong), '0.1.0'), wrong).toThrow(/v0\.1\.0/);
+    }
+    expect(() => assertTagMatchesVersion(tag(), '0.1.0')).toThrow(/GITHUB_REF_NAME/);
+    // Other builds are not tagged: nothing to check.
+    expect(() => assertTagMatchesVersion({}, '0.1.0')).not.toThrow();
+    expect(() =>
+      assertTagMatchesVersion({ GITHUB_REF_TYPE: 'branch', GITHUB_REF_NAME: 'main' }, '0.1.0'),
+    ).not.toThrow();
+  });
+});
+
 describe('package command', () => {
   async function runCommand(
     args: readonly string[],
@@ -734,6 +796,8 @@ describe('package command', () => {
     expect(await readdir(releaseDir)).toEqual([baseZipName(version)]);
     const entries = await readZip(join(releaseDir, baseZipName(version)));
     expect(entries[EXE_ZIP_PATH]).toEqual(new TextEncoder().encode(FAKE_EXE));
+    // The notices folder is part of every base zip, not only of the in-memory plan.
+    expect(Object.keys(entries)).toContain('other/launcher/licenses/third-party.NOTICE.md');
   });
 
   test('package_command_warns_loudly_about_the_empty_license_and_refuses_it_for_releases', async () => {
@@ -745,7 +809,7 @@ describe('package command', () => {
 
     for (const [args, env] of [
       [['--release'], {}],
-      [[], { GITHUB_REF_TYPE: 'tag' }],
+      [[], { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: `v${await readVersion(ROOT)}` }],
     ] as const) {
       const releaseDir = await tempDir();
       const run = await runCommand(['--exe', exe, '--out', releaseDir, ...args], env);
@@ -758,6 +822,27 @@ describe('package command', () => {
       GITHUB_REF_TYPE: 'branch',
     });
     expect(branch.code, branch.out).toBe(0);
+  });
+
+  test('package_command_refuses_a_tag_that_is_not_the_package_version_before_any_work', async () => {
+    const exe = await fakeExe(await tempDir());
+    const version = await readVersion(ROOT);
+    const releaseDir = await tempDir();
+    const run = await runCommand(['--exe', exe, '--out', releaseDir], {
+      GITHUB_REF_TYPE: 'tag',
+      GITHUB_REF_NAME: 'v9.9.9',
+    });
+    expect(run.code, run.out).not.toBe(0);
+    expect(run.out).toContain('v9.9.9');
+    expect(run.out).toContain(`v${version}`);
+    expect(await readdir(releaseDir)).toEqual([]);
+    // With the right tag the version check passes; this checkout still stops at the empty license.
+    const right = await runCommand(['--exe', exe, '--out', releaseDir], {
+      GITHUB_REF_TYPE: 'tag',
+      GITHUB_REF_NAME: `v${version}`,
+    });
+    expect(right.out).not.toContain('v9.9.9');
+    expect(right.out).toContain('genslate.LICENSE.md');
   });
 
   test('package_command_refuses_the_runtime_add_on_while_the_lock_has_no_hash', async () => {
