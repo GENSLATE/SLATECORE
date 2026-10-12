@@ -1,0 +1,3 @@
+kind: Security
+body: Files that can run code, such as programs, scripts and shortcuts, are not opened from the vault; export them to a folder instead.
+time: 2026-10-12T02:10:04.000000000Z

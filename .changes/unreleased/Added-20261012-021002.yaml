@@ -1,0 +1,3 @@
+kind: Added
+body: The vault encrypts the files in storage/vault with a password you set in Settings; they unlock on demand and lock again after you stop using them.
+time: 2026-10-12T02:10:02.000000000Z
