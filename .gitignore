@@ -61,6 +61,9 @@ programs/desktop/launcher/installDir/programs/**/*
 programs/desktop/launcher/installDir/storage/**/*
 !programs/desktop/launcher/installDir/storage/**/
 !programs/desktop/launcher/installDir/storage/**/.gitkeep
+# The vault folder holds only what the vault writes or what is dropped in; the vault creates it,
+# and a tracked .gitkeep there would be encrypted into the vault as a plain file.
+programs/desktop/launcher/installDir/storage/vault/
 programs/desktop/launcher/installDir/other/**/*
 !programs/desktop/launcher/installDir/other/**/
 !programs/desktop/launcher/installDir/other/**/.gitkeep
