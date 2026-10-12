@@ -1,18 +1,19 @@
 # Active context
 
-Loaded into every Claude session through `CLAUDE.md`, so keep it under 40 lines and rewrite it
-rather than appending. Last updated 2026-10-08 (launcher UI fix round 2).
+Imported by `CLAUDE.md`; keep it under 40 lines and rewrite it, do not append. Last updated 2026-10-12 (launcher v1 ready for owner PR review).
 
 ## State
 
-- Branch `build/launcher-v1` (pushed), building SLATECORE LAUNCHER by GENSLATE from the approved
-  launcher plan (`docs/superpowers/plans/2026-10-07-genslate-launcher-plan.md`, local only).
-- Landed: monorepo foundation, tokens, design system, Design Kit, tauri-bridge, root commands
-  and git hooks, CI, the agent folders, the crates `paths`, `launcher-core` and `vault` (vault
-  still in its review fix round), and the launcher UI (tabs, slash bar, Settings tool, tray
-  menu) against the browser mock. `git log --oneline` is the source of truth.
-- Remaining: Task 12 (Tauri shell in `src-tauri`, serving the real command registry and IPC),
-  Task 13, Task 16, and screenshots of the real app on Windows.
+- Branch `build/launcher-v1`, building SLATECORE LAUNCHER by GENSLATE from the approved launcher
+  plan (`docs/superpowers/plans/2026-10-07-genslate-launcher-plan.md`, local only).
+- Landed: every task of the plan, including the Tauri shell (`src-tauri`), packaging
+  (`bun run package`, no-trace Tiers 1 to 3) and the launcher UI. The whole-branch review found
+  no Critical issue. `git log --oneline` is the source of truth.
+- Waiting on the Windows machine: real build and run, `bun run package` re-run, Tier 2, tray and
+  vault-notice checks, and screenshots of the real app (the Linux ones come from the browser mock).
+- Owner decisions pending: GENSLATE licence text (release builds refuse while it is empty), whether
+  auto-lock may force-wipe unsaved vault edits (today it never does), an About note on WebView2
+  HKCU keys, and the empty root README, LICENSE and CHANGELOG.
 - The UI's command handlers use the Rust registry's ids and parameter names
   (`crates/launcher-core/src/actions.rs`); a launcher test reads that file, so renaming an id or
   parameter there means updating `src/app/launcher-commands.model.ts`.
@@ -30,10 +31,10 @@ rather than appending. Last updated 2026-10-08 (launcher UI fix round 2).
 - Agents work in parallel on disjoint paths in one checkout. Stage and commit only your own paths
   (`git add -- <paths>`, `git commit -- <paths>`); other agents may have uncommitted files.
 - No agent credit in commits or PRs; the commit-msg hook and CI reject it.
-- Never delete or rewrite `.claude/project/` (committed screenshots from other agents).
-- `bun run check` is the gate; `turbo run build` for the launcher waits on Task 12.
+- Never delete or rewrite `.claude/project/` (other agents' screenshots).
+- `bun run check` is the gate; the launcher build and Rust shell tests run on the Windows machine.
 
 ## Open questions
 
 - Which single icon set long term (Codicons today)? Owner has not objected.
-- Do Cursor and Antigravity add commit trailers? Unverified; the attribution check covers both.
+- Do Cursor and Antigravity add commit trailers? Unverified; the check covers both.
