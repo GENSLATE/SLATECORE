@@ -40,6 +40,8 @@ export function Select<Value = string>({
   triggerClassName,
   children,
   items: itemsProp,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
   ...rootProps
 }: SelectProps<Value>) {
   const isInvalid = invalid ?? error != null;
@@ -64,7 +66,13 @@ export function Select<Value = string>({
       >
         {options ? (
           <>
-            <SelectTrigger size={size} placeholder={placeholder} className={triggerClassName} />
+            <SelectTrigger
+              size={size}
+              placeholder={placeholder}
+              className={triggerClassName}
+              aria-label={ariaLabel}
+              aria-labelledby={ariaLabelledby}
+            />
             <SelectPopup>
               {groupOptions(options).map(([group, groupItems], index) => {
                 const rows = groupItems.map((option) => (

@@ -11,6 +11,7 @@ import {
   themeValue,
 } from '@genslate/tokens';
 import { buttonVariants } from '../../../src/components/actions/button/button.variants';
+import { toggleButtonVariants } from '../../../src/components/actions/toggle-button/toggle-button.variants';
 import { avatarVariants } from '../../../src/components/display/avatar/avatar.variants';
 import { kbdVariants } from '../../../src/components/display/kbd/kbd.variants';
 import { badgeVariants } from '../../../src/components/feedback/badge/badge.variants';
@@ -159,4 +160,22 @@ describe('Button pressed colours', () => {
       }
     });
   }
+});
+
+describe('ToggleButton pressed text contrast', () => {
+  test('pressed_label_reaches_aa_on_its_accent_tint_over_every_surface', () => {
+    const classes = toggleButtonVariants({}).split(/\s+/);
+    const pressed = (prefix: string) =>
+      classes.find((c) => c.startsWith(`data-pressed:${prefix}-`) && !c.includes('border'));
+    const fg = pressed('text')?.replace('data-pressed:text-', '');
+    const bg = pressed('bg')?.replace('data-pressed:bg-', '');
+    expect(bg).toBe('accent-subtle');
+    expect(COLOR_KEYS.has(fg ?? '')).toBe(true);
+    for (const theme of themes) {
+      for (const surface of SURFACES) {
+        const ratio = measure(theme, fg as TextPairKey, bg as TextPairKey, surface);
+        expect(ratio, `${theme.id}: ${fg} on ${bg} over ${surface}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
 });

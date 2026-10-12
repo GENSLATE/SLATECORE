@@ -22,6 +22,9 @@ export interface SelectProps<Value = string>
   options?: readonly SelectOption<Value>[] | undefined;
   /** Called with the chosen value. */
   onValueChange?: ((value: Value | null) => void) | undefined;
+  /** Accessible name for the simple API's trigger when there is no visible `label`. */
+  'aria-label'?: string | undefined;
+  'aria-labelledby'?: string | undefined;
   /** Placeholder for the simple API's trigger. */
   placeholder?: ReactNode | undefined;
   /** Trigger size for the simple API. */

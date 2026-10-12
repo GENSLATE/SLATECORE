@@ -26,6 +26,11 @@ describe('Select', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 
+  test('simple API: aria-label names the trigger when there is no visible label', () => {
+    render(<Select aria-label="Encoding" options={options} defaultValue="ts" />);
+    expect(screen.getByRole('combobox', { name: 'Encoding' })).toHaveTextContent('TypeScript');
+  });
+
   test('opens, shows grouped options with the selection checked, and selects', async () => {
     const user = userEvent.setup();
     const onValueChange = mock((_: string | null) => {});
