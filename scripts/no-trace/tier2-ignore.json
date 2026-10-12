@@ -1,5 +1,5 @@
 {
-  "$comment": "Tier 2 ignore list: registry keys and folder entries that Windows itself changes when ANY new program runs or a tray icon appears, so they are not the launcher's doing. PROVISIONAL: written from knowledge of Windows, not from a trace. The control run also starts a new exe so this noise cancels out by itself; this list only catches what does not cancel. Confirm or trim it after the first real run on Windows, and add a rule only with a reason. A path is a case-insensitive glob (* inside one level, ** across levels); the key or entry and everything below it match. Registry paths start with HKEY_CURRENT_USER\\Software, folder entries with TEMP/, APPDATA/ or LOCALAPPDATA/.",
+  "$comment": "Tier 2 ignore list: registry keys and folder entries that Windows itself changes when ANY new program runs or a tray icon appears, so they are not the launcher's doing. PROVISIONAL: written from knowledge of Windows, not from a trace. The control run also starts a new exe so this noise cancels out by itself; this list only catches what does not cancel. Confirm or trim it after the first real run on Windows, and add a rule only with a reason. A path is a case-insensitive glob (* inside one level, ** across levels); the key or entry and everything below it match. Registry paths start with HKEY_CURRENT_USER\\Software, folder entries with TEMP/, APPDATA/ or LOCALAPPDATA/. Rules labelled \"known WebView2 limits\" come from a real run of the packaged exe against the PC's Evergreen WebView2 runtime; the test prints them every run so they stay visible. Nothing in %TEMP%, %APPDATA% or %LOCALAPPDATA% is ignored for WebView2.",
   "schema": 1,
   "provisional": true,
   "rules": [
@@ -20,8 +20,8 @@
     },
     {
       "id": "user-assist",
-      "reason": "Provisional: Explorer counts program launches in UserAssist for any program started from the shell or a launcher.",
-      "path": "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist"
+      "reason": "Provisional: Explorer counts program launches in this UserAssist list (the one for executable files) for any program started from the shell or a launcher.",
+      "path": "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\\{CEBFF5CD-ACE2-4F4F-9178-9926F41749EA}\\Count"
     },
     {
       "id": "feature-usage",
@@ -37,6 +37,24 @@
       "id": "gpu-shader-cache",
       "reason": "Provisional: the graphics driver keeps compiled shaders for any GPU-using program; written by the driver and listed in the README as outside the launcher's control.",
       "path": "LOCALAPPDATA/D3DSCache"
+    },
+    {
+      "id": "webview2-edgeupdate-clientstate",
+      "label": "known WebView2 limits",
+      "reason": "Provisional: written by the WebView2 runtime, a Windows/WebView2 limit the launcher cannot control (the updater's ClientState for the Evergreen runtime, written on every run).",
+      "path": "HKEY_CURRENT_USER\\Software\\Microsoft\\EdgeUpdate\\ClientState\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    },
+    {
+      "id": "webview2-preference-macs",
+      "label": "known WebView2 limits",
+      "reason": "Provisional: written by the WebView2 runtime, a Windows/WebView2 limit the launcher cannot control (the preference integrity values, which change or vanish with its settings such as extensions.settings).",
+      "path": "HKEY_CURRENT_USER\\Software\\Microsoft\\EdgeWebView\\PreferenceMACs\\Default"
+    },
+    {
+      "id": "webview2-stability-metrics",
+      "label": "known WebView2 limits",
+      "reason": "Provisional: written by the WebView2 runtime, a Windows/WebView2 limit the launcher cannot control (its crash and stability counters).",
+      "path": "HKEY_CURRENT_USER\\Software\\Microsoft\\EdgeWebView\\StabilityMetrics"
     }
   ]
 }

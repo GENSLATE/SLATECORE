@@ -20,6 +20,7 @@ changie
 checkmarked
 checkmarks
 claudeignore
+clientstate
 clippy
 codegen
 codereview
@@ -44,6 +45,7 @@ dotviz
 DTCG
 dynmetrics
 ebwebview
+edgeupdate
 EDITMSG
 favorited
 fflate

@@ -12,9 +12,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { extractZip } from '../lib/archive';
+import { extractZip, readZip } from '../lib/archive';
 import { ROOT } from '../lib/paths';
 import { readVersion } from '../lib/release';
+import { planBase } from '../lib/stage';
 import { baseZipName, EXE_ZIP_PATH } from '../lib/targets';
 import {
   checkTrace,
@@ -27,6 +28,7 @@ import {
   pmlToCsvArgs,
 } from '../no-trace/procmon';
 import {
+  describeIgnored,
   diffSnapshots,
   exportHkcuSoftware,
   filterIgnored,
@@ -37,8 +39,10 @@ import {
   listFolder,
   parseIgnoreList,
   parseRegExport,
+  partitionIgnored,
   runControl,
   runLauncher,
+  staleZipProblems,
   takeSnapshot,
   tier2SkipReason,
 } from '../no-trace/tier2';
@@ -54,6 +58,12 @@ async function tempDir(): Promise<string> {
 afterEach(async () => {
   for (const dir of temporary.splice(0)) await rm(dir, { recursive: true, force: true });
 });
+
+async function shippedIgnoreList() {
+  return parseIgnoreList(
+    JSON.parse(await readFile(join(ROOT, 'scripts/no-trace/tier2-ignore.json'), 'utf8')),
+  );
+}
 
 async function write(root: string, file: string, text = 'x'): Promise<void> {
   const path = join(root, file);
@@ -184,27 +194,85 @@ describe('tier 2 helpers', () => {
   });
 
   test('ignore_rules_drop_windows_owned_noise_and_nothing_else', async () => {
-    const list = parseIgnoreList(
-      JSON.parse(await readFile(join(ROOT, 'scripts/no-trace/tier2-ignore.json'), 'utf8')),
-    );
+    const list = await shippedIgnoreList();
     const store =
       'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Compatibility Assistant\\Store';
-    const changes = [
+    const explorer = 'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer';
+    const noise = [
       `~ ${store}`,
       '+ HKEY_CURRENT_USER\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\TrayNotify',
       '~ HKEY_CURRENT_USER\\Software\\classes\\local settings\\software\\microsoft\\windows\\shell\\muicache',
-      '~ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\\{GUID}\\Count',
+      `~ ${explorer}\\UserAssist\\{CEBFF5CD-ACE2-4F4F-9178-9926F41749EA}\\Count`,
       '+ LOCALAPPDATA/Microsoft/Windows/Explorer/iconcache_32.db',
       '+ LOCALAPPDATA/D3DSCache/',
+    ];
+    const leaks = [
       // The launcher's own leaks are never ignored.
       '+ LOCALAPPDATA/xyz.genslate.slatecore.launcher/',
       '+ HKEY_CURRENT_USER\\Software\\Microsoft\\Edge\\BLBeacon',
       '+ HKEY_CURRENT_USER\\Software\\GENSLATE',
       '+ TEMP/scratch.tmp',
       // Only below a rule, not a sibling that shares its start.
-      '+ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssistant',
+      `+ ${explorer}\\UserAssistant`,
+      // Only the one UserAssist list, not every GUID under it.
+      `~ ${explorer}\\UserAssist\\{00000000-0000-0000-0000-000000000000}\\Count`,
     ];
-    expect(filterIgnored(changes, list.rules)).toEqual(changes.slice(6));
+    expect(filterIgnored([...noise, ...leaks], list.rules)).toEqual(leaks);
+  });
+
+  test('webview2_runtime_keys_are_ignored_exactly_and_reported_as_known_limits', async () => {
+    const list = await shippedIgnoreList();
+    const edge = 'HKEY_CURRENT_USER\\Software\\Microsoft';
+    const limits = [
+      `~ ${edge}\\EdgeUpdate\\ClientState\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`,
+      `~ ${edge}\\EdgeWebView\\PreferenceMACs\\Default`,
+      `+ ${edge}\\EdgeWebView\\StabilityMetrics`,
+    ];
+    const others = [
+      // A different Edge component or another client is not covered.
+      `~ ${edge}\\EdgeUpdate\\ClientState\\{00000000-0000-0000-0000-000000000000}`,
+      `+ ${edge}\\EdgeUpdate\\Clients`,
+      `+ ${edge}\\EdgeWebView\\BLBeacon`,
+      `+ ${edge}\\Edge\\PreferenceMACs\\Default`,
+      // The OS folders stay strict: WebView2 data in them is a leak.
+      '+ LOCALAPPDATA/Microsoft/EdgeWebView/',
+      '+ APPDATA/Microsoft/EdgeWebView/',
+      '+ TEMP/edge.tmp',
+    ];
+    const { kept, ignored } = partitionIgnored([...limits, ...others], list.rules);
+    expect(kept).toEqual(others);
+    expect(ignored.map((item) => item.change)).toEqual(limits);
+    for (const item of ignored) {
+      expect(item.rule.label, item.change).toBe('known WebView2 limits');
+      expect(item.rule.reason, item.change).toMatch(
+        /^Provisional: written by the WebView2 runtime/,
+      );
+    }
+    // They stay visible: the report names the group, the rule and every ignored key.
+    const report = describeIgnored(ignored);
+    expect(report).toContain('known WebView2 limits (3)');
+    for (const item of ignored) expect(report).toContain(item.change);
+    expect(describeIgnored([])).toBe('');
+    // No rule for a watched folder is about WebView2.
+    for (const rule of list.rules.filter((rule) => rule.label === 'known WebView2 limits')) {
+      expect(rule.path.startsWith('HKEY_CURRENT_USER\\Software\\Microsoft\\Edge'), rule.id).toBe(
+        true,
+      );
+    }
+  });
+
+  test('a_zip_that_does_not_match_the_current_package_plan_is_reported_as_stale', () => {
+    const planned = ['README.md', 'other/launcher/licenses/third-party.NOTICE.md', 'x/y.exe'];
+    expect(staleZipProblems([...planned].reverse(), planned)).toEqual([]);
+    const problems = staleZipProblems(
+      ['README.md', 'other/launcher/documents/release.md', 'x/y.exe'],
+      planned,
+    ).join('\n');
+    expect(problems).toContain(
+      'missing from the zip: other/launcher/licenses/third-party.NOTICE.md',
+    );
+    expect(problems).toContain('not in the current package: other/launcher/documents/release.md');
+    expect(problems).toContain('bun run package');
   });
 
   test('the_shipped_ignore_list_is_valid_reasoned_and_marked_provisional', async () => {
@@ -302,6 +370,13 @@ describe('tier 2: the packaged exe leaves no trace', () => {
       temporary.push(join(parent, 'registry'), join(parent, 'control'));
       await extractZip(zip, installDir);
       const exe = join(installDir, ...EXE_ZIP_PATH.split('/'));
+      // An old zip left in release/ must not be tested as the current package.
+      const planned = await planBase({ root: ROOT, exe, version: await readVersion(ROOT) });
+      const stale = staleZipProblems(
+        Object.keys(await readZip(zip)),
+        planned.map((entry) => entry.path),
+      );
+      expect(stale, stale.join('\n')).toEqual([]);
 
       const places = {
         TEMP: process.env['TEMP'] ?? tmpdir(),
@@ -337,7 +412,11 @@ describe('tier 2: the packaged exe leaves no trace', () => {
       expect(await Bun.file(join(installDir, 'other/launcher/logs/launcher.log')).exists()).toBe(
         true,
       );
-      expect(filterIgnored(leaksOf(controlChanges, runChanges), ignore.rules)).toEqual([]);
+      // What an ignore rule explains is not a leak, but it stays visible in the output.
+      const { kept, ignored } = partitionIgnored(leaksOf(controlChanges, runChanges), ignore.rules);
+      const report = describeIgnored(ignored);
+      if (report !== '') console.log(`[tier 2] ignored by tier2-ignore.json:\n${report}`);
+      expect(kept).toEqual([]);
     },
     600_000,
   );

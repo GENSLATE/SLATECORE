@@ -125,7 +125,11 @@ export interface IgnoreRule {
   /** A glob over a registry key (`HKEY_CURRENT_USER\...`) or a folder entry (`LABEL/...`). The
    * key or entry and everything below it match. Case-insensitive. */
   readonly path: string;
+  /** The group the report prints the ignored change under (default: `known Windows noise`). */
+  readonly label?: string;
 }
+
+export const DEFAULT_IGNORE_LABEL = 'known Windows noise';
 
 export interface IgnoreList {
   readonly schema: 1;
@@ -144,7 +148,10 @@ export function parseIgnoreList(value: unknown): IgnoreList {
   if (!Array.isArray(raw.rules)) throw new Error('tier 2 ignore list: rules must be a list');
   const seen = new Set<string>();
   const rules = (raw.rules as Record<string, unknown>[]).map((rule) => {
-    const { id, reason, path } = rule;
+    const { id, reason, path, label } = rule;
+    if (label !== undefined && (typeof label !== 'string' || label.trim() === '')) {
+      throw new Error(`tier 2 ignore list: "${String(id)}" has an empty label`);
+    }
     if (typeof id !== 'string' || typeof reason !== 'string' || typeof path !== 'string') {
       throw new Error('tier 2 ignore list: every rule needs a string id, reason and path');
     }
@@ -161,21 +168,82 @@ export function parseIgnoreList(value: unknown): IgnoreList {
     if (parts.length < (registry ? 4 : 2) || parts.slice(1, 3).some((part) => part.includes('*'))) {
       throw new Error(`tier 2 ignore list: "${id}" is too broad`);
     }
-    return { id, reason, path };
+    return label === undefined ? { id, reason, path } : { id, reason, path, label };
   });
   return { schema: 1, provisional: raw.provisional, rules };
 }
 
-/** Drops the changes an ignore rule explains. A change line is `+ x`, `- x` or `~ x`. */
-export function filterIgnored(changes: readonly string[], rules: readonly IgnoreRule[]): string[] {
+/** A change an ignore rule explained, with the rule. */
+export interface IgnoredChange {
+  readonly change: string;
+  readonly rule: IgnoreRule;
+}
+
+/**
+ * Splits the changes into those no rule explains (`kept`: the leaks) and those one does
+ * (`ignored`), so the ignored ones can still be shown. A change line is `+ x`, `- x` or `~ x`.
+ */
+export function partitionIgnored(
+  changes: readonly string[],
+  rules: readonly IgnoreRule[],
+): { kept: string[]; ignored: IgnoredChange[] } {
   const matchers = rules.map((rule) => {
     const separator = rule.path.startsWith('HKEY_') ? '\\' : '/';
-    return [globToRegExp(rule.path), globToRegExp(`${rule.path}${separator}**`)] as const;
+    const patterns = [globToRegExp(rule.path), globToRegExp(`${rule.path}${separator}**`)];
+    return { rule, patterns };
   });
-  return changes.filter((change) => {
+  const kept: string[] = [];
+  const ignored: IgnoredChange[] = [];
+  for (const change of changes) {
     const target = change.slice(2).replace(/ \(the folder itself\)$/, '');
-    return !matchers.some((pair) => pair.some((pattern) => pattern.test(target)));
-  });
+    const hit = matchers.find(({ patterns }) => patterns.some((pattern) => pattern.test(target)));
+    if (hit === undefined) kept.push(change);
+    else ignored.push({ change, rule: hit.rule });
+  }
+  return { kept, ignored };
+}
+
+/** Drops the changes an ignore rule explains. */
+export function filterIgnored(changes: readonly string[], rules: readonly IgnoreRule[]): string[] {
+  return partitionIgnored(changes, rules).kept;
+}
+
+/** A report of what was ignored and why, grouped by label; empty when nothing was ignored. */
+export function describeIgnored(ignored: readonly IgnoredChange[]): string {
+  const groups = new Map<string, IgnoredChange[]>();
+  for (const item of ignored) {
+    const label = item.rule.label ?? DEFAULT_IGNORE_LABEL;
+    groups.set(label, [...(groups.get(label) ?? []), item]);
+  }
+  return [...groups]
+    .map(([label, items]) =>
+      [`${label} (${items.length}):`, ...items.map((i) => `  ${i.change}  [${i.rule.id}]`)].join(
+        '\n',
+      ),
+    )
+    .join('\n');
+}
+
+/**
+ * Why a built zip is not the package the current checkout would build: names the zip lacks or
+ * holds beyond the plan. An old `release/` zip would otherwise be tested as if it were current.
+ */
+export function staleZipProblems(
+  zipNames: readonly string[],
+  plannedNames: readonly string[],
+): string[] {
+  const inZip = new Set(zipNames);
+  const planned = new Set(plannedNames);
+  const problems = [
+    ...plannedNames
+      .filter((name) => !inZip.has(name))
+      .map((name) => `missing from the zip: ${name}`),
+    ...zipNames
+      .filter((name) => !planned.has(name))
+      .map((name) => `not in the current package: ${name}`),
+  ];
+  if (problems.length > 0) problems.push('the release zip is stale: run `bun run package` again');
+  return problems;
 }
 
 /** Snapshots `places` and the registry text returned by `exportRegistry`. */
