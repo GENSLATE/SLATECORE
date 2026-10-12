@@ -51,6 +51,7 @@ mod settings_write;
 mod state;
 mod storage_path;
 mod sys;
+mod temp_clean;
 mod tray;
 mod tray_menu;
 mod vault_commands;
@@ -64,6 +65,7 @@ mod window;
 mod guards;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use genslate_launcher_core::APP_NAME;
 use genslate_launcher_core::config::{LogLevel, Settings};
@@ -72,17 +74,63 @@ use tauri::utils::config::{AppDirectoriesOverride, AppDirectoryOverrides};
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use tauri_plugin_log::{Target, TargetKind};
 
-use crate::fatal::Fatal;
+use crate::fatal::{Fatal, SetupStep};
 use crate::state::{Launcher, VaultSlot};
 use crate::vault_dto::VaultErrorDto;
-use crate::vault_service::{EXIT_SAVE_BOUND, ExitLock, VaultService};
+use crate::vault_service::{EXIT_SAVE_BOUND, EXIT_WIPE_BOUND, ExitLock, VaultService};
 
 /// Builds and runs the app. A start-up failure is shown in a message box and ends the process
 /// with status 1.
 pub fn run() {
+    install_panic_hook();
     if let Err(fatal) = try_run() {
         dialog::show(&fatal);
         std::process::exit(1);
+    }
+}
+
+/// The last line of defence: with `panic = "abort"` and no console a panic is a silent exit, so
+/// the hook shows a generic message box first (once, even when the box itself panics or another
+/// thread panics meanwhile) and logs where it happened. The message holds no path and not the
+/// panic text, which can hold anything.
+fn install_panic_hook() {
+    static SHOWN: AtomicBool = AtomicBool::new(false);
+    std::panic::set_hook(Box::new(|info| {
+        if let Some(location) = info.location() {
+            log::error!("panic at {}:{}", location.file(), location.line());
+        }
+        if fatal::first_call(&SHOWN) {
+            dialog::show(&Fatal::Crashed);
+        }
+    }));
+}
+
+/// A step of `setup` failed: Tauri would turn the error into a panic, so show the box, log the
+/// detail (it can name a path, the box never does) and end the process with status 1.
+fn abort_start(step: SetupStep, error: &dyn std::fmt::Display) -> ! {
+    log::error!("start-up failed ({step:?}): {error}");
+    dialog::show(&Fatal::from(step));
+    std::process::exit(1)
+}
+
+/// Before any window exists: a web profile another runtime wrote is emptied, and so is the
+/// launcher's own scratch folder. Best effort, each failure only reaches the log.
+fn clear_stale_data(paths: &AppPaths, stamp: &str) {
+    match web_data::reset_if_runtime_changed(paths, stamp) {
+        Ok(true) => log::info!("the WebView2 data folder was reset for the new runtime"),
+        Ok(false) => {}
+        Err(error) => log::warn!("could not reset the WebView2 data folder: {error}"),
+    }
+    // The launcher's own scratch folder (`TEMP`) is emptied too: plaintext a program left
+    // there must not outlive its use. Best effort, counts only in the log.
+    match temp_clean::empty_temp(&paths.temp_dir, &paths.cache_dir) {
+        Ok(report) if report.removed + report.failed > 0 => log::info!(
+            "emptied the temporary folder ({} removed, {} in use)",
+            report.removed,
+            report.failed
+        ),
+        Ok(_) => {}
+        Err(error) => log::warn!("could not empty the temporary folder: {error}"),
     }
 }
 
@@ -133,13 +181,7 @@ fn try_run() -> Result<(), Fatal> {
                 app.package_info().version,
                 paths.mode()
             );
-            // Before any window exists: a profile another runtime wrote is emptied, and the
-            // vault wipes the decrypted files a crash or a pulled drive left behind.
-            match web_data::reset_if_runtime_changed(&paths, &stamp) {
-                Ok(true) => log::info!("the WebView2 data folder was reset for the new runtime"),
-                Ok(false) => {}
-                Err(error) => log::warn!("could not reset the WebView2 data folder: {error}"),
-            }
+            clear_stale_data(&paths, &stamp);
             let vault = open_vault(&paths);
             app.manage(Launcher::new(paths.clone(), vault));
             let launcher = handle.state::<Launcher>();
@@ -147,18 +189,23 @@ fn try_run() -> Result<(), Fatal> {
                 log::warn!("settings: {issue}; using the previous values");
             }
 
-            window::create(handle, &launcher)?;
+            // Errors here would make Tauri panic (and the user see nothing): each becomes a box.
+            window::create(handle, &launcher)
+                .unwrap_or_else(|error| abort_start(SetupStep::Window, &error.message()));
             // A tray menu that fails to build costs the right-click menu, not the launcher.
             if let Err(error) = tray_menu::create(handle, &launcher) {
                 log::warn!("the tray menu window could not be created: {}", error.message());
             }
-            tray::create(handle)?;
+            // The tray icon is the only way back to a hidden launcher: no icon, no launcher.
+            tray::create(handle)
+                .unwrap_or_else(|error| abort_start(SetupStep::Tray, &error.message()));
             hotkey::register(handle, &launcher.settings().keybindings.global.toggle);
             reload::start(handle);
             window::spawn_hit_test(handle.clone());
             monitor::spawn(handle.clone());
             vault_commands::spawn_background(handle.clone());
-            window::show(handle)?;
+            window::show(handle)
+                .unwrap_or_else(|error| abort_start(SetupStep::Show, &error.message()));
             Ok(())
         })
         .on_window_event(on_window_event)
@@ -289,7 +336,8 @@ fn lock_vault_for_exit<R: Runtime>(app: &tauri::AppHandle<R>) {
     let Some(service) = launcher.vault_service() else {
         return;
     };
-    match service.lock_for_exit(EXIT_SAVE_BOUND) {
+    let outcome = service.lock_for_exit(EXIT_SAVE_BOUND);
+    match &outcome {
         ExitLock::NotUnlocked => {}
         ExitLock::Locked(report) => {
             if !report.undeletable.is_empty() {
@@ -309,8 +357,16 @@ fn lock_vault_for_exit<R: Runtime>(app: &tauri::AppHandle<R>) {
         ),
         ExitLock::Failed(error) => log::warn!(
             "the vault could not lock on exit: {}",
-            VaultErrorDto::from(&error).code
+            VaultErrorDto::from(error).code
         ),
+    }
+    // A last, bounded try at decrypted files that an earlier lock could not delete because a
+    // program held them (it may have let go since). Skipped after a timeout: something is stuck.
+    if !matches!(outcome, ExitLock::TimedOut)
+        && let Some(left) = service.final_wipe(EXIT_WIPE_BOUND)
+        && left > 0
+    {
+        log::warn!("{left} decrypted files are still on the drive; the next start wipes them");
     }
 }
 

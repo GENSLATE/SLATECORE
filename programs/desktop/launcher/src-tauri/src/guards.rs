@@ -620,12 +620,72 @@ fn start_up_runs_in_the_documented_order() -> TestResult {
         "the single-instance plugin is the first plugin"
     );
     assert!(at("tauri_plugin_single_instance::init")? < at("log_plugin(&paths")?);
-    // Before the first window: the web data reset and the vault (which wipes stale sessions).
-    assert!(at("reset_if_runtime_changed")? < at("window::create(")?);
+    // Before the first window: the web data reset, the scratch folder and the vault (which wipes
+    // stale sessions). The helper holds the two clean-ups; setup calls it.
+    assert!(at("clear_stale_data(&paths, &stamp)")? < at("open_vault(&paths)")?);
+    assert!(at("clear_stale_data(&paths, &stamp)")? < at("window::create(")?);
+    let helper = &lib[at("fn clear_stale_data")?..at("fn try_run")?];
+    assert!(helper.contains("reset_if_runtime_changed"));
+    assert!(helper.contains("temp_clean::empty_temp(&paths.temp_dir, &paths.cache_dir)"));
     assert!(at("open_vault(&paths)")? < at("window::create(")?);
     assert!(at("window::create(")? < at("window::show(handle)")?);
     // The vault is locked when the app exits.
     assert!(lib.contains("RunEvent::Exit => lock_vault_for_exit"));
+    Ok(())
+}
+
+/// Tauri turns an error out of `setup` into a panic inside the event loop, and the release build
+/// aborts on panic with no console: the user would see nothing. So `setup` has no `?` and no
+/// `Err(..)` return, every fallible step ends in `abort_start` (a box, then exit 1) and a panic
+/// hook shows one generic box.
+#[test]
+fn a_failed_setup_step_shows_a_box_instead_of_a_silent_panic() -> TestResult {
+    let lib = read("src/lib.rs")?;
+    let start = lib.find(".setup(move |app|").ok_or("no setup")?;
+    let end = lib[start..]
+        .find(".on_window_event")
+        .ok_or("no end of setup")?
+        + start;
+    let setup = &lib[start..end];
+    assert!(
+        !setup.contains(")?"),
+        "a `?` inside setup becomes a silent panic"
+    );
+    assert!(
+        !setup.contains("return Err"),
+        "setup must not return an error"
+    );
+    for step in ["Window", "Tray", "Show"] {
+        assert!(
+            setup.contains(&format!("abort_start(SetupStep::{step}")),
+            "setup lacks abort_start for {step}"
+        );
+    }
+    assert!(setup.contains("Ok(())"));
+    // The hook goes in before anything can panic, and the box it shows is the generic one.
+    let run = lib.find("pub fn run()").ok_or("no run")?;
+    let after_run = &lib[run..];
+    assert!(
+        after_run
+            .find("install_panic_hook()")
+            .ok_or("no hook call")?
+            < after_run.find("try_run()").ok_or("no try_run call")?
+    );
+    assert!(lib.contains("dialog::show(&Fatal::Crashed)"));
+    Ok(())
+}
+
+/// The KDF memory cap is set when the vault is opened, and the scratch folder cannot be skipped.
+#[test]
+fn the_vault_gets_a_memory_cap_and_the_scratch_folder_is_emptied() -> TestResult {
+    let service = read("src/vault_service.rs")?;
+    assert!(service.contains("set_kdf_memory_limit(Some(kdf_limit_bytes("));
+    let lib = read("src/lib.rs")?;
+    assert!(lib.contains("temp_clean::empty_temp("));
+    // The background loop retries what a lock could not delete, and exit tries one last time.
+    let commands = read("src/vault_commands.rs")?;
+    assert!(commands.contains("service.retry_leftovers()"));
+    assert!(lib.contains("service.final_wipe(EXIT_WIPE_BOUND)"));
     Ok(())
 }
 

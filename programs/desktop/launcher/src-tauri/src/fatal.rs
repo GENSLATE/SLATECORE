@@ -3,8 +3,22 @@
 //! A GUI program on Windows has no console, so printing to stderr shows nothing: the message
 //! goes into a message box (`dialog`). The wording is chosen here, free of any GUI code.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::brand::PRODUCT;
 use crate::runtime::RuntimeError;
+
+/// The step of `setup` (run by Tauri once the event loop is up) that failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupStep {
+    /// The launcher window could not be created.
+    Window,
+    /// The tray icon could not be created. Fatal on purpose: with no icon and the window hidden
+    /// nothing can bring the launcher back, so it would sit in memory unreachable.
+    Tray,
+    /// The first placement and show of the window failed.
+    Show,
+}
 
 /// Why the launcher cannot start.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,8 +32,27 @@ pub enum Fatal {
     NoRuntime { host_too_old: Option<String> },
     /// A runtime was chosen but `WebView2` would not start with it.
     RuntimeFailed,
+    /// A step of `setup` failed. Tauri turns an error returned from `setup` into a panic, and
+    /// with `panic = "abort"` in a program with no console that is a silent exit, so the shell
+    /// shows this instead. It carries no detail: the detail (which can hold a path) goes to the
+    /// log.
+    Setup(SetupStep),
+    /// A panic reached the panic hook: the last line of defence, generic on purpose.
+    Crashed,
     /// Anything else that stopped start-up.
     Startup(String),
+}
+
+impl From<SetupStep> for Fatal {
+    fn from(step: SetupStep) -> Self {
+        Self::Setup(step)
+    }
+}
+
+/// `true` for the first caller only. The panic hook uses it so that a second panic (or a panic
+/// inside the dialog itself) does not show a second box or recurse.
+pub fn first_call(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::SeqCst)
 }
 
 impl From<RuntimeError> for Fatal {
@@ -68,6 +101,24 @@ pub fn message(fatal: &Fatal) -> Message {
         Fatal::RuntimeFailed => format!(
             "The WebView2 runtime could not be started.\n\n\
              If {PRODUCT} was started as administrator, close it and start it normally."
+        ),
+        Fatal::Setup(step) => {
+            let what = match step {
+                SetupStep::Window => "Its window could not be created.".to_owned(),
+                SetupStep::Tray => format!(
+                    "Its tray icon could not be created. Without it {PRODUCT} could not be \
+                     shown again once hidden, so it stops here."
+                ),
+                SetupStep::Show => "Its window could not be shown.".to_owned(),
+            };
+            format!(
+                "{PRODUCT} could not start.\n\n{what}\n\nStart it again. If it keeps \
+                 happening, the log in the launcher's logs folder says why."
+            )
+        }
+        Fatal::Crashed => format!(
+            "{PRODUCT} stopped unexpectedly and will close.\n\nStart it again. If it keeps \
+             happening, the log in the launcher's logs folder says why."
         ),
         Fatal::Startup(text) => format!("{PRODUCT} could not start.\n\n{text}"),
     };
@@ -119,5 +170,44 @@ mod tests {
     fn a_paths_failure_shows_the_paths_crates_own_words() {
         let text = message(&Fatal::Paths("E:\\X is not writable.".to_owned())).body;
         assert_eq!(text, "E:\\X is not writable.");
+    }
+
+    #[test]
+    fn a_failed_setup_step_becomes_a_message_with_no_path_and_no_detail() {
+        for step in [SetupStep::Window, SetupStep::Tray, SetupStep::Show] {
+            let fatal = Fatal::from(step);
+            assert_eq!(fatal, Fatal::Setup(step));
+            let text = message(&fatal).body;
+            assert!(
+                text.contains("SLATECORE LAUNCHER could not start"),
+                "{text}"
+            );
+            assert!(text.contains("Start it again"), "{text}");
+            assert!(!text.contains('\\') && !text.contains(":/"), "{text}");
+        }
+        let tray = message(&Fatal::from(SetupStep::Tray)).body;
+        assert!(tray.contains("tray icon"), "{tray}");
+        assert!(tray.contains("stops here"), "{tray}");
+        let window = message(&Fatal::from(SetupStep::Window)).body;
+        assert!(window.contains("window could not be created"), "{window}");
+        assert_ne!(window, message(&Fatal::from(SetupStep::Show)).body);
+    }
+
+    #[test]
+    fn the_crash_message_is_generic() {
+        let text = message(&Fatal::Crashed).body;
+        assert!(text.contains("stopped unexpectedly"), "{text}");
+        assert!(!text.contains('\\') && !text.contains(":/"), "{text}");
+    }
+
+    #[test]
+    fn the_panic_hook_shows_its_box_once() {
+        let flag = AtomicBool::new(false);
+        assert!(first_call(&flag));
+        assert!(
+            !first_call(&flag),
+            "a second panic, or one inside the box, shows nothing"
+        );
+        assert!(!first_call(&flag));
     }
 }

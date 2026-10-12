@@ -24,18 +24,63 @@ use std::time::{Duration, Instant};
 
 use genslate_paths::AppPaths;
 use genslate_vault::{
-    LockPolicy, LockReport, SecretString, StartupReport, SyncReport, Vault, VaultConfig,
+    KdfParams, LockPolicy, LockReport, SecretString, StartupReport, SyncReport, Vault, VaultConfig,
     VaultError, VaultPath, VaultState,
 };
 
 use crate::auto_lock::{AutoLock, LockReason, Timeouts};
 use crate::storage_path::{resolve_again, resolve_user_path, verify_written};
 use crate::vault_dto::{
-    ConflictDto, EntryDto, LockReportDto, VaultStatusDto, VerifyReportDto, relative_to,
+    ConflictDto, EntryDto, LockReportDto, StateDto, VaultStatusDto, VerifyReportDto, relative_to,
 };
 
 /// How long the exit lock may try to save edits before it gives up and wipes anyway.
 pub const EXIT_SAVE_BOUND: Duration = Duration::from_secs(10);
+/// How long the last look at undeletable session files at exit may take.
+pub const EXIT_WIPE_BOUND: Duration = Duration::from_secs(3);
+
+const MIB: u64 = 1024 * 1024;
+
+/// The most memory the KDF may allocate for one unlock, in bytes.
+///
+/// A header on the drive chooses its own Argon2 cost (up to 1 GiB and four passes), so a
+/// damaged or hostile header would make every attempt allocate that much. The cap is a quarter of
+/// the memory available, at least 256 MiB (twice what the vault uses itself, so a vault made on
+/// this machine always opens) and at most 1 GiB (the largest header the format accepts).
+/// `available` is `None` when it is not known, which is the case today: reading it needs either
+/// `unsafe` or a system-information crate in this crate's manifest, so the shell uses the fixed
+/// [`FALLBACK_KDF_LIMIT`].
+pub fn kdf_limit_bytes(available: Option<u64>) -> u64 {
+    let own = u64::from(KdfParams::STANDARD.m_cost_kib) * 1024;
+    available
+        .map_or(FALLBACK_KDF_LIMIT, |bytes| {
+            (bytes / 4).clamp(256 * MIB, 1024 * MIB)
+        })
+        .max(own)
+}
+
+/// The fixed cap used while the available memory is not queried: four times the vault's own
+/// 128 MiB, a fifth of the format's maximum.
+pub const FALLBACK_KDF_LIMIT: u64 = 512 * MIB;
+
+/// Whether `relative` (a session-relative path with `/`) names a decrypted file in a session
+/// folder: `<8 hex digits>/<file ...>`. Anything else in the session root (the vault never
+/// touches those entries) is not a leftover the person can do anything about.
+pub fn is_session_leftover(relative: &str) -> bool {
+    let mut parts = relative.split('/');
+    let session = parts.next().unwrap_or_default();
+    let in_session = session.len() == 8 && session.chars().all(|c| c.is_ascii_hexdigit()); // cspell:ignore hexdigit
+    in_session && parts.next().is_some_and(|name| !name.is_empty())
+}
+
+/// The session-relative names (never absolute paths) of the leftover session files among `paths`.
+fn leftover_names(paths: &[PathBuf], session_root: &Path) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| relative_to(path, session_root))
+        .filter(|name| is_session_leftover(name))
+        .collect()
+}
 
 /// What the lock at exit did.
 #[derive(Debug)]
@@ -137,6 +182,9 @@ pub struct VaultService {
     users_root: PathBuf,
     session_root: PathBuf,
     auto_lock: Mutex<AutoLock>,
+    /// Decrypted files the last lock or wipe could not delete, as session-relative names. The
+    /// vault only counts them; the shell keeps the names so the UI can show them.
+    leftovers: Mutex<Vec<String>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -153,18 +201,62 @@ impl VaultService {
     pub fn open(paths: &AppPaths) -> Result<(Self, StartupReport), VaultError> {
         let config = VaultConfig::new(paths.vault_dir(), paths.vault_session_dir());
         let (vault, report) = Vault::open(config)?;
+        // A header on the drive picks its own KDF cost; cap what an unlock may allocate.
+        vault.set_kdf_memory_limit(Some(kdf_limit_bytes(None)));
         let service = Self {
             vault: Arc::new(vault),
             users_root: paths.layout.storage.join("users"),
             session_root: paths.vault_session_dir(),
             auto_lock: Mutex::new(AutoLock::new(Instant::now())),
+            leftovers: Mutex::new(Vec::new()),
         };
+        service.record_leftovers(&report.stale_files_left);
         Ok((service, report))
     }
 
     /// The vault's state; no I/O, no key derivation.
     pub fn status(&self) -> VaultStatusDto {
-        VaultStatusDto::from(&self.vault.status())
+        let mut dto = VaultStatusDto::from(&self.vault.status());
+        // The names mean something only while the vault is locked and still counts leftovers.
+        if dto.state != StateDto::Unlocked && dto.session_files > 0 {
+            dto.undeletable.clone_from(&locked(&self.leftovers));
+        }
+        dto
+    }
+
+    /// Remembers which decrypted files could not be deleted (`paths` as the vault reports them).
+    fn record_leftovers(&self, paths: &[PathBuf]) {
+        *locked(&self.leftovers) = leftover_names(paths, &self.session_root);
+    }
+
+    /// Tries again to delete the decrypted files a lock could not remove. `None` when the vault
+    /// is unlocked (the files are in use then); otherwise how many are still there.
+    ///
+    /// # Errors
+    ///
+    /// The vault's error.
+    pub fn retry_leftovers(&self) -> Option<Result<usize, VaultError>> {
+        match self.vault.wipe_session_leftovers() {
+            Ok(report) => {
+                self.record_leftovers(&report.stale_files_left);
+                Some(Ok(locked(&self.leftovers).len()))
+            }
+            Err(VaultError::AlreadyUnlocked) => None,
+            Err(error) => Some(Err(error)),
+        }
+    }
+
+    /// One last, bounded look at the files a lock could not delete, for the exit. `Some(n)` with
+    /// the number still there, `None` when it was skipped or did not finish in `bound`.
+    pub fn final_wipe(&self, bound: Duration) -> Option<usize> {
+        let vault = Arc::clone(&self.vault);
+        match run_bounded(bound, move || vault.wipe_session_leftovers()) {
+            Bounded::Done(Ok(report)) => {
+                self.record_leftovers(&report.stale_files_left);
+                Some(locked(&self.leftovers).len())
+            }
+            _ => None,
+        }
     }
 
     fn touch(&self) {
@@ -210,6 +302,7 @@ impl VaultService {
             LockPolicy::SyncThenWipe
         };
         let report = self.vault.lock(policy)?;
+        self.record_leftovers(&report.undeletable);
         Ok(LockReportDto::new(&report, &self.session_root))
     }
 
@@ -328,7 +421,10 @@ impl VaultService {
             return Tick::Idle;
         };
         match self.vault.lock(LockPolicy::SyncThenWipe) {
-            Ok(report) => Tick::Locked(reason, LockReportDto::new(&report, &self.session_root)),
+            Ok(report) => {
+                self.record_leftovers(&report.undeletable);
+                Tick::Locked(reason, LockReportDto::new(&report, &self.session_root))
+            }
             // Someone locked it meanwhile: nothing left to do.
             Err(VaultError::Locked) => Tick::Idle,
             Err(error) => Tick::Blocked(reason, error),
@@ -565,6 +661,102 @@ mod tests {
 
         let written = paths.layout.storage.join("users/shared/Desktop/out.txt");
         assert_eq!(fs::read_to_string(written)?, "hello");
+        Ok(())
+    }
+
+    #[test]
+    fn the_kdf_cap_is_a_quarter_of_the_memory_between_256_mib_and_1_gib() {
+        let gib = 1024 * MIB;
+        assert_eq!(kdf_limit_bytes(None), 512 * MIB, "unknown: the fixed cap");
+        assert_eq!(
+            kdf_limit_bytes(Some(gib)),
+            256 * MIB,
+            "a small PC: the floor"
+        );
+        assert_eq!(kdf_limit_bytes(Some(0)), 256 * MIB);
+        assert_eq!(kdf_limit_bytes(Some(4 * gib)), gib);
+        assert_eq!(kdf_limit_bytes(Some(2 * gib)), 512 * MIB);
+        assert_eq!(
+            kdf_limit_bytes(Some(64 * gib)),
+            gib,
+            "never above the format's maximum"
+        );
+        assert_eq!(kdf_limit_bytes(Some(u64::MAX)), gib);
+        let standard = u64::from(KdfParams::STANDARD.m_cost_kib) * 1024;
+        for available in [None, Some(0), Some(gib), Some(32 * gib)] {
+            assert!(kdf_limit_bytes(available) >= standard, "{available:?}");
+        }
+    }
+
+    #[test]
+    fn only_files_inside_a_session_folder_count_as_leftovers() {
+        assert!(is_session_leftover("1a2b3c4d/report.docx"));
+        assert!(is_session_leftover("DEADBEEF/sub/notes.txt"));
+        for other in [
+            "",
+            "readme.txt",
+            "1a2b3c4d",
+            "1a2b3c4d/",
+            "notahexid/file.txt",
+            "1a2b3c4/file.txt",
+            "1a2b3c4d5/file.txt",
+            "1a2b3c4g/file.txt",
+        ] {
+            assert!(!is_session_leftover(other), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn the_retry_and_the_exit_look_wipe_a_stale_session_folder() -> TestResult {
+        let tmp = TempTree::new()?;
+        let paths = paths_in(&tmp)?;
+        let (service, _) = VaultService::open(&paths)?;
+        let stale = paths.vault_session_dir().join("cafe0002");
+        fs::create_dir_all(&stale)?;
+        fs::write(stale.join("left.txt"), "plaintext")?;
+
+        let remaining = service.retry_leftovers().ok_or("no retry")??;
+        assert_eq!(remaining, 0);
+        assert!(!stale.join("left.txt").exists());
+
+        fs::create_dir_all(&stale)?;
+        fs::write(stale.join("again.txt"), "plaintext")?;
+        assert_eq!(service.final_wipe(EXIT_WIPE_BOUND), Some(0));
+        assert!(!stale.join("again.txt").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn the_status_names_the_undeletable_files_only_while_locked_and_relative_to_the_session()
+    -> TestResult {
+        let tmp = TempTree::new()?;
+        let paths = paths_in(&tmp)?;
+        let (service, _) = VaultService::open(&paths)?;
+        let root = paths.vault_session_dir();
+        service.record_leftovers(&[
+            root.join("1a2b3c4d").join("held.docx"),
+            root.join("stray.txt"),
+        ]);
+        // The vault itself says nothing is left over, so the status shows nothing.
+        let json = serde_json::to_value(service.status())?;
+        assert_eq!(json["undeletable"], serde_json::json!([]));
+        assert_eq!(json["sessionFiles"], 0);
+
+        // With leftovers the vault counts, the names come with them (session-relative, and the
+        // entry that is not in a session folder is not offered).
+        let names = leftover_names(
+            &[
+                root.join("1a2b3c4d").join("held.docx"),
+                root.join("stray.txt"),
+            ],
+            &root,
+        );
+        assert_eq!(names, ["1a2b3c4d/held.docx"]);
+        assert!(
+            names
+                .iter()
+                .all(|name| !name.contains(':') && !name.starts_with('/'))
+        );
         Ok(())
     }
 

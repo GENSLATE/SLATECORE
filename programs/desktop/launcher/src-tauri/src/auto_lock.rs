@@ -71,6 +71,48 @@ impl BlockedNotifier {
     }
 }
 
+/// How long after a lock the shell keeps trying to delete decrypted files a program still holds.
+pub const LEFTOVER_RETRY_WINDOW: Duration = Duration::from_secs(120);
+
+/// What to do about decrypted files that a lock could not delete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeftoverStep {
+    /// Nothing is left, the vault is unlocked, or the window already ended.
+    Nothing,
+    /// Try to delete them again now.
+    Retry,
+    /// The window just ended with files still there: tell the UI one last time.
+    GaveUp,
+}
+
+/// Retries the deletion of session files a lock could not remove (`research/vault.md` 6.6: every
+/// tick for two minutes). The window starts when leftovers are first seen after a lock and ends
+/// for good when they are gone or the vault is unlocked again, so every lock gets its own.
+#[derive(Debug, Clone, Default)]
+pub struct LeftoverRetry {
+    since: Option<Instant>,
+    gave_up: bool,
+}
+
+impl LeftoverRetry {
+    /// One tick: the vault is `unlocked` or not and `leftovers` session files are still on disk.
+    pub fn step(&mut self, now: Instant, unlocked: bool, leftovers: usize) -> LeftoverStep {
+        if unlocked || leftovers == 0 {
+            *self = Self::default();
+            return LeftoverStep::Nothing;
+        }
+        let since = *self.since.get_or_insert(now);
+        if now.saturating_duration_since(since) < LEFTOVER_RETRY_WINDOW {
+            LeftoverStep::Retry
+        } else if self.gave_up {
+            LeftoverStep::Nothing
+        } else {
+            self.gave_up = true;
+            LeftoverStep::GaveUp
+        }
+    }
+}
+
 /// The two timeouts; `None` = never.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timeouts {
@@ -283,5 +325,72 @@ mod tests {
     fn the_reasons_use_the_words_the_ui_gets() {
         assert_eq!(LockReason::Idle.as_str(), "idle");
         assert_eq!(LockReason::Hidden.as_str(), "hidden");
+    }
+
+    #[test]
+    fn leftovers_are_retried_every_tick_for_two_minutes_then_given_up_once() {
+        let start = Instant::now();
+        let mut retry = LeftoverRetry::default();
+        assert_eq!(
+            retry.step(start, false, 1),
+            LeftoverStep::Retry,
+            "first seen"
+        );
+        for seconds in (5..120).step_by(5) {
+            let now = start + Duration::from_secs(seconds);
+            assert_eq!(retry.step(now, false, 1), LeftoverStep::Retry, "{seconds}s");
+        }
+        let end = start + LEFTOVER_RETRY_WINDOW;
+        assert_eq!(retry.step(end, false, 1), LeftoverStep::GaveUp);
+        assert_eq!(
+            retry.step(end + Duration::from_secs(5), false, 1),
+            LeftoverStep::Nothing
+        );
+        assert_eq!(
+            retry.step(end + Duration::from_secs(600), false, 1),
+            LeftoverStep::Nothing
+        );
+    }
+
+    #[test]
+    fn no_leftovers_or_an_unlocked_vault_need_no_retry() {
+        let start = Instant::now();
+        let mut retry = LeftoverRetry::default();
+        assert_eq!(retry.step(start, false, 0), LeftoverStep::Nothing);
+        assert_eq!(
+            retry.step(start, true, 3),
+            LeftoverStep::Nothing,
+            "while unlocked the session files are in use, not left over"
+        );
+    }
+
+    #[test]
+    fn a_new_lock_gets_a_new_window() {
+        let start = Instant::now();
+        let mut retry = LeftoverRetry::default();
+        assert_eq!(retry.step(start, false, 2), LeftoverStep::Retry);
+        // The program let go: nothing left.
+        assert_eq!(
+            retry.step(start + Duration::from_secs(30), false, 0),
+            LeftoverStep::Nothing
+        );
+        // Much later, another lock leaves a file behind: a fresh two minutes.
+        let later = start + Duration::from_secs(1000);
+        assert_eq!(retry.step(later, false, 1), LeftoverStep::Retry);
+        assert_eq!(
+            retry.step(later + Duration::from_secs(119), false, 1),
+            LeftoverStep::Retry
+        );
+        // Given up, then unlocked and locked again: also fresh.
+        assert_eq!(
+            retry.step(later + Duration::from_secs(121), false, 1),
+            LeftoverStep::GaveUp
+        );
+        assert_eq!(
+            retry.step(later + Duration::from_secs(130), true, 1),
+            LeftoverStep::Nothing
+        );
+        let again = later + Duration::from_mins(15);
+        assert_eq!(retry.step(again, false, 1), LeftoverStep::Retry);
     }
 }

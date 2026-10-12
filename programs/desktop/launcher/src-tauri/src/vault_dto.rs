@@ -55,6 +55,11 @@ pub struct VaultStatusDto {
     pub foreign_items: usize,
     pub entry_count: Option<usize>,
     pub session_files: usize,
+    /// While the vault is locked and `session_files` is not 0: the decrypted files a lock could
+    /// not delete (a program still holds them), as `<session id>/<file name>`, never an absolute
+    /// path. The shell retries for two minutes after a lock; the UI should name the files and
+    /// ask the person to close the program that holds them. Empty otherwise.
+    pub undeletable: Vec<String>,
 }
 
 fn millis(duration: std::time::Duration) -> u64 {
@@ -76,6 +81,7 @@ impl From<&VaultStatus> for VaultStatusDto {
             foreign_items: status.foreign_items,
             entry_count: status.entry_count,
             session_files: status.session_files,
+            undeletable: Vec::new(),
         }
     }
 }
@@ -93,6 +99,7 @@ impl VaultStatusDto {
             foreign_items: 0,
             entry_count: None,
             session_files: 0,
+            undeletable: Vec::new(),
         }
     }
 }
@@ -386,6 +393,7 @@ mod tests {
         assert_eq!(json["foreignItems"], 3);
         assert!(json["entryCount"].is_null());
         assert_eq!(json["sessionFiles"], 0);
+        assert_eq!(json["undeletable"], serde_json::json!([]));
         assert_eq!(json["failedAttempts"], 2);
         assert_eq!(json["kdfUpgradePending"], false);
         Ok(())

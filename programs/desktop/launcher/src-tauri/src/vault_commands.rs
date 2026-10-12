@@ -31,15 +31,15 @@ use std::time::{Duration, Instant};
 use genslate_vault::{SecretString, VaultError};
 use tauri::{AppHandle, Manager};
 
-use crate::auto_lock::{BlockedNotifier, Timeouts};
+use crate::auto_lock::{BlockedNotifier, LeftoverRetry, LeftoverStep, Timeouts};
 use crate::events;
 use crate::open_policy;
 use crate::os_open;
 use crate::reload::emit_main;
 use crate::state::{Launcher, VaultSlot};
 use crate::vault_dto::{
-    ConflictDto, EntryDto, LockBlockedDto, LockReportDto, OpenedDto, VaultErrorDto, VaultStatusDto,
-    VerifyReportDto,
+    ConflictDto, EntryDto, LockBlockedDto, LockReportDto, OpenedDto, StateDto, VaultErrorDto,
+    VaultStatusDto, VerifyReportDto,
 };
 use crate::vault_service::{Tick, VaultService};
 
@@ -196,6 +196,7 @@ pub fn spawn_background(app: AppHandle) {
 fn background(app: &AppHandle) {
     let mut ticks: u32 = 0;
     let mut blocked = BlockedNotifier::default();
+    let mut leftovers = LeftoverRetry::default();
     loop {
         thread::sleep(TICK);
         let launcher = app.state::<Launcher>();
@@ -233,9 +234,41 @@ fn background(app: &AppHandle) {
                 }
             }
         }
+        retry_leftovers(app, &service, &mut leftovers);
         ticks = ticks.wrapping_add(1);
         if ticks.is_multiple_of(SYNC_EVERY_TICKS) {
             sync(app, &service);
+        }
+    }
+}
+
+/// While the vault is locked and a lock left decrypted files behind (a program still holds
+/// them), try to delete them again on every tick for two minutes (`auto_lock::LeftoverRetry`),
+/// and tell the UI after each attempt so its list of files shrinks as programs let go.
+fn retry_leftovers(app: &AppHandle, service: &VaultService, window: &mut LeftoverRetry) {
+    let status = service.status();
+    let unlocked = matches!(status.state, StateDto::Unlocked);
+    match window.step(Instant::now(), unlocked, status.session_files) {
+        LeftoverStep::Nothing => {}
+        LeftoverStep::Retry => {
+            match service.retry_leftovers() {
+                None => {}
+                Some(Ok(left)) => log::info!("{left} decrypted session files are still held"),
+                // The code only: a vault error's text can name vault entries.
+                Some(Err(error)) => log::warn!(
+                    "removing leftover session files failed: {}",
+                    VaultErrorDto::from(&error).code
+                ),
+            }
+            emit_main(app, events::VAULT_STATUS, service.status());
+        }
+        LeftoverStep::GaveUp => {
+            log::warn!(
+                "{} decrypted session files are still held after two minutes; giving up until \
+                 the next lock or exit",
+                status.session_files
+            );
+            emit_main(app, events::VAULT_STATUS, service.status());
         }
     }
 }
