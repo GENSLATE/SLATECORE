@@ -8,8 +8,8 @@
  * Launcher geometry. The OS window is transparent, fixed in size (as wide as the expanded
  * layout, as tall as the size preset) and pinned to the bottom-right of the work area. Inside
  * it the frame is drawn at the bottom-right edge, `--launcher-inset` in from the window edges.
- * Opening a tool widens the frame from NORMAL to EXPANDED (a CSS width transition to the left);
- * closing it shrinks back. `src-tauri` hit-tests the same numbers (get_context → layout, set on
+ * Opening a tool widens the frame from NORMAL to EXPANDED (a clip-path reveal to the left, see
+ * "Frame" below); closing it shrinks back. `src-tauri` hit-tests the same numbers (get_context → layout, set on
  * :root at boot), and the size heights match `genslate-launcher-core` geometry.
  */
 @theme {
@@ -67,17 +67,65 @@ html[data-launcher-mode='web'] {
   transition-duration: var(--gs-duration-fast);
 }
 
-/* ── Frame: widen / shrink ──────────────────────────────────────────────── */
-.launcher-frame {
-  width: var(--launcher-normal);
-  height: min(var(--launcher-height), 100%);
-  transition:
-    width var(--gs-duration-slow) var(--gs-ease-emphasized),
-    height var(--gs-duration-slow) var(--gs-ease-emphasized);
+/*
+ * ── Frame: widen / shrink ───────────────────────────────────────────────────
+ * The frame is always laid out at the EXPANDED width, pinned to the right edge, so widening and
+ * shrinking never reflow anything. What changes is how much of it is shown: `clip-path` reveals
+ * it from the right (the left edge moves), and the parts that hug the left edge (the rail, the
+ * titlebar and status-bar left clusters, `.launcher-slide`) travel with `transform`, so the
+ * motion looks like the old width transition but animates compositor-friendly properties only.
+ *
+ * The 1px border is a ring made of two clipped layers: the frame itself paints the border colour
+ * over the surface (its `::before`), the body paints the surface 1px further in. Both clip with
+ * the same easing, so the ring follows the moving left edge and the rounded corners.
+ *
+ * `--launcher-slide` is how far the left edge sits from the expanded edge: NORMAL → EXPANDED.
+ */
+[data-slot='launcher-window'] {
+  --launcher-slide: calc(var(--launcher-expanded) - var(--launcher-normal));
 }
 
-[data-expanded] .launcher-frame {
+[data-slot='launcher-window'][data-expanded] {
+  --launcher-slide: 0px;
+}
+
+.launcher-frame {
   width: var(--launcher-expanded);
+  height: min(var(--launcher-height), 100%);
+  flex-shrink: 0;
+  background-color: var(--gs-color-surface);
+  clip-path: inset(0 0 0 var(--launcher-slide) round var(--launcher-radius));
+  transition: clip-path var(--gs-duration-slow) var(--gs-ease-emphasized);
+}
+
+.launcher-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--gs-color-border);
+  pointer-events: none;
+}
+
+.launcher-frame-body {
+  clip-path: inset(
+    1px 1px 1px calc(var(--launcher-slide) + 1px) round calc(var(--launcher-radius) - 1px)
+  );
+  transition: clip-path var(--gs-duration-slow) var(--gs-ease-emphasized);
+}
+
+/* Left-hugging parts of the frame travel with the left edge. */
+.launcher-slide {
+  transform: translateX(var(--launcher-slide));
+  transition: transform var(--gs-duration-slow) var(--gs-ease-emphasized);
+}
+
+/*
+ * A flexible left cluster (titlebar, status bar) also reserves the slid distance on its right,
+ * so it shrinks to the visible width and never runs under the right-hand cluster. Layout only
+ * changes at the switch, never per frame.
+ */
+.launcher-slide-fit {
+  margin-right: var(--launcher-slide);
 }
 
 /*
@@ -101,6 +149,8 @@ html[data-launcher-mode='web'] {
 @media (prefers-reduced-motion: reduce) {
   .launcher-stage,
   .launcher-frame,
+  .launcher-frame-body,
+  .launcher-slide,
   .launcher-layer {
     transition-duration: 0ms;
     transition-delay: 0ms;

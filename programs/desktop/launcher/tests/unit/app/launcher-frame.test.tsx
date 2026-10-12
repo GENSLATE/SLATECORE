@@ -135,11 +135,45 @@ describe('launcher frame', () => {
     expect(backend.openConfigFile).toHaveBeenCalledWith('settings');
   });
 
-  test('the frame is flat: a 1px border and no shadow (only floating popups get one)', async () => {
+  test('the frame is flat: a 1px border ring and no shadow (only floating popups get one)', async () => {
     await renderLauncher();
     const panel = document.querySelector('[data-slot="launcher-frame"]');
-    expect(panel?.className).toMatch(/\bborder\b/);
+    const body = document.querySelector('[data-slot="launcher-frame-body"]');
     expect(panel?.className).not.toMatch(/shadow/);
+    expect(body?.className).not.toMatch(/shadow/);
+    const css = await Bun.file(new URL('../../../src/styles/main.css', import.meta.url)).text();
+    expect(css).toMatch(/\.launcher-frame-body\s*\{[^}]*inset\(\s*1px 1px 1px /);
+    expect(css).not.toMatch(/box-shadow/);
+  });
+
+  test('widening_and_shrinking_animate_the_clip_and_slide_never_width_or_height', async () => {
+    const css = await Bun.file(new URL('../../../src/styles/main.css', import.meta.url)).text();
+    const block = (selector: string) => {
+      const start = css.indexOf(`${selector} {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return css.slice(start, css.indexOf('}', start));
+    };
+    for (const selector of ['.launcher-frame', '.launcher-frame-body', '.launcher-slide']) {
+      const transition = /transition:[^;]*;/.exec(block(selector))?.[0] ?? '';
+      expect(transition).toMatch(/clip-path|transform/);
+      expect(transition).not.toMatch(/\b(width|height|top|left|margin)\b/);
+    }
+    // Reduced motion collapses all of them.
+    const reduced = css.slice(css.indexOf('prefers-reduced-motion'));
+    for (const selector of ['.launcher-frame,', '.launcher-frame-body,', '.launcher-slide,']) {
+      expect(reduced).toContain(selector);
+    }
+    expect(reduced).toMatch(/transition-duration:\s*0ms/);
+  });
+
+  test('the_rail_and_the_left_clusters_slide_with_the_left_edge', async () => {
+    await renderLauncher();
+    const slid = (slot: string) => document.querySelector(`[data-slot="${slot}"] .launcher-slide`);
+    expect(slid('launcher-titlebar')).not.toBeNull();
+    expect(slid('launcher-status-bar')).not.toBeNull();
+    expect(
+      document.querySelector('[data-slot="launcher-frame-body"] > .launcher-slide'),
+    ).not.toBeNull();
   });
 
   test('run_mode_badge_sits_in_the_titlebar_not_the_status_bar', async () => {

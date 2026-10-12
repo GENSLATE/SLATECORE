@@ -54,9 +54,13 @@ export function LauncherStatusBar({
       data-slot="launcher-status-bar"
       data-context-zone="statusbar"
       data-has-temps={hasTemps || undefined}
-      className="@container/status hairline-t flex h-full items-center gap-3 bg-surface-sidebar pr-1.5 pl-3 text-fg-muted text-xs tabular-nums"
+      className="hairline-t flex h-full items-center gap-3 bg-surface-sidebar pr-1.5 pl-3 text-fg-muted text-xs tabular-nums"
     >
-      {volume === null ? null : <DriveMeter volume={volume} />}
+      {volume === null ? null : (
+        <div className="launcher-slide launcher-slide-fit flex min-w-0">
+          <DriveMeter volume={volume} />
+        </div>
+      )}
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
         {settings.issue === null ? null : (
           <Tooltip content={`Settings file ignored: ${settings.issue}`}>
@@ -151,7 +155,7 @@ function Reading({ label, icon, wide = false, value }: ReadingProps) {
   return (
     <span
       data-context-copy={`${name} ${value}`}
-      className={cn('items-center gap-1', wide ? '@min-[36rem]/status:flex hidden' : 'flex')}
+      className={cn('items-center gap-1', wide ? 'hidden group-data-expanded/window:flex' : 'flex')}
     >
       {icon === undefined ? null : <Icon name="codicon:arrow-down" size={12} />}
       {label === undefined ? null : <span>{label}</span>}

@@ -37,7 +37,7 @@ export function LauncherTitleBar({
       data-context-zone="titlebar"
       className="hairline-b flex h-full items-center gap-0.5 pr-1.5 pl-3.5"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="launcher-slide launcher-slide-fit flex min-w-0 flex-1 items-center gap-2">
         <img src={markUrl} alt="" className="size-4.5 shrink-0" draggable={false} />
         <span className="truncate text-xs tracking-[0.14em]">
           <span className="font-semibold text-fg-strong">SLATECORE</span>{' '}
