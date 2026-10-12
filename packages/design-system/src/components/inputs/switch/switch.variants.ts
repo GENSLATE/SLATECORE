@@ -14,7 +14,7 @@ export const switchLabelVariants = tv({
 /** The track: a neutral bordered track when off, solid accent when on. */
 export const switchTrackVariants = tv({
   base: [
-    'focus-ring relative inline-flex shrink-0 items-center rounded-full border border-border p-px',
+    'hit-area focus-ring relative inline-flex shrink-0 items-center rounded-full border border-border p-px',
     'bg-track transition-[background-color,border-color] duration-base ease-standard',
     'hover:border-border-strong active:bg-control-pressed',
     'data-checked:border-transparent data-checked:bg-accent data-checked:active:bg-accent-active data-checked:hover:bg-accent-hover',

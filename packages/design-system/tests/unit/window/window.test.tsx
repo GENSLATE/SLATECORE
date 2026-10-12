@@ -186,6 +186,9 @@ describe('AppShell', () => {
     expect(screen.getByRole('main', { name: 'Content' })).toHaveTextContent('Main');
     const sash = screen.getByRole('separator', { name: 'Resize sidebar' });
     expect(sash).toHaveAttribute('aria-valuenow', '240');
+    // A keyboard stop always draws the shared focus ring, not only the accent line.
+    expect(sash).toHaveClass('focus-ring');
+    expect(sash).not.toHaveClass('outline-none');
     sash.focus();
     await user.keyboard('{ArrowRight}');
     expect(sash).toHaveAttribute('aria-valuenow', '248');

@@ -9,7 +9,7 @@ export const appShellVariants = tv({
     main: 'relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas',
     inspector: 'flex min-h-0 shrink-0 flex-col border-border-subtle border-l',
     sash: [
-      'group/sash absolute inset-y-0 -right-0.75 z-sash w-1.5 cursor-col-resize touch-none outline-none',
+      'group/sash focus-ring absolute inset-y-0 -right-0.75 z-sash w-1.5 cursor-col-resize touch-none',
     ],
     sashLine: [
       'pointer-events-none absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-accent opacity-0',

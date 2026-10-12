@@ -9,7 +9,7 @@ export const trafficLightsVariants = tv({
     root: 'group/traffic chrome flex shrink-0 items-center gap-traffic-gap',
     light: [
       'relative flex size-traffic-light shrink-0 items-center justify-center rounded-full p-0',
-      'focus-ring border border-traffic-rim outline-offset-1',
+      'hit-area focus-ring border border-traffic-rim outline-offset-1',
       // Background window (prop or <html data-window-focused="false">), unless the group is hovered.
       '[[data-inactive]:not(:hover)>&]:bg-traffic-inactive',
       '[[data-window-focused=false]_[data-slot=traffic-lights]:not(:hover)>&]:bg-traffic-inactive',

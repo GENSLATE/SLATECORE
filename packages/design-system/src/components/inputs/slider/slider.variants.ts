@@ -7,7 +7,7 @@ export const sliderVariants = tv({
     label: 'select-none font-medium text-fg-secondary text-sm',
     value: 'text-fg-muted text-sm tabular-nums',
     control:
-      'relative flex h-5 w-full touch-none select-none items-center data-disabled:pointer-events-none',
+      'hit-area relative flex h-5 w-full touch-none select-none items-center data-disabled:pointer-events-none',
     track: 'relative h-1 w-full rounded-full bg-track',
     indicator: 'rounded-full bg-accent window-inactive:bg-fg-disabled',
     thumb: [

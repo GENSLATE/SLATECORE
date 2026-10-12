@@ -41,6 +41,13 @@ describe('Avatar', () => {
 });
 
 describe('CodeBlock', () => {
+  test('its scrollable pre is keyboard reachable and shows a focus ring', () => {
+    const { container } = render(<CodeBlock code="bun run check" language="bash" />);
+    const pre = container.querySelector('[data-slot="code-block-pre"]');
+    expect(pre).toHaveAttribute('tabindex', '0');
+    expect(pre).toHaveClass('focus-ring-inset');
+  });
+
   test('renders code with line numbers and copies it', async () => {
     const user = userEvent.setup();
     const onCopy = mock();

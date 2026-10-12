@@ -1,6 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
+import { buttonVariants } from '../../../src/components/actions/button/button.variants';
+import { iconButtonVariants } from '../../../src/components/actions/icon-button/icon-button.variants';
+import { toggleButtonVariants } from '../../../src/components/actions/toggle-button/toggle-button.variants';
+import { checkboxBoxVariants } from '../../../src/components/inputs/checkbox/checkbox.variants';
+import { passwordFieldToggleVariants } from '../../../src/components/inputs/password-field/password-field.variants';
+import { radioVariants } from '../../../src/components/inputs/radio-group/radio-group.variants';
+import { sliderVariants } from '../../../src/components/inputs/slider/slider.variants';
+import { switchTrackVariants } from '../../../src/components/inputs/switch/switch.variants';
+import { textFieldClearVariants } from '../../../src/components/inputs/text-field/text-field.variants';
+import { breadcrumbsVariants } from '../../../src/components/navigation/breadcrumbs/breadcrumbs.variants';
+import { popoverVariants } from '../../../src/components/overlays/popover/popover.variants';
+import { toastVariants } from '../../../src/components/overlays/toast/toast.variants';
+import { trafficLightsVariants } from '../../../src/components/window/traffic-lights/traffic-lights.variants';
 import {
   buildCss,
   deadCandidates,
@@ -20,13 +33,6 @@ const recipeFiles = listFiles(join(srcRoot, 'recipes')).filter((file) =>
 );
 /** Every file that carries styling: the CSS layer, component variants and shared recipes. */
 const styleSources = [...styleSheets, ...variantFiles, ...recipeFiles];
-
-/**
- * The one allowed gradient: ColorSwatch's transparency checkerboard. It is not a surface
- * treatment, it is the standard pattern that shows through translucent colours.
- */
-const swatchCheckerboard =
-  'bg-[conic-gradient(var(--gs-color-fill-pressed)_25%,transparent_0_50%,var(--gs-color-fill-pressed)_0_75%,transparent_0)]';
 
 /** Collects every class token a tailwind-variants component can emit. */
 function collectClasses(value: unknown, into: Set<string>): void {
@@ -142,9 +148,7 @@ describe('flat Nord style rules', () => {
     ];
     const offenders: string[] = [];
     for (const file of styleSources) {
-      let text = readFileSync(file, 'utf8');
-      if (basename(file) === 'color-swatch.variants.ts')
-        text = text.replace(swatchCheckerboard, '');
+      const text = readFileSync(file, 'utf8');
       for (const [label, pattern] of forbidden) {
         if (pattern.test(text)) offenders.push(`${rel(file)}: ${label}`);
       }
@@ -213,7 +217,6 @@ describe('flat Nord style rules', () => {
     const nonInteractive = new Set([
       'toolbar.variants.ts',
       'avatar.variants.ts',
-      'code-block.variants.ts',
       'color-swatch.variants.ts',
       'icon.variants.ts',
       'kbd.variants.ts',
@@ -376,6 +379,17 @@ describe('motion layer', () => {
     }
   });
 
+  test('pulse_soft_animates_a_ring_and_never_the_text', async () => {
+    // The "Coming soon" badge carries text: dipping its opacity would drop the label below AA.
+    const css = await buildCss(['motion-pulse-soft']);
+    const rule = blocksMatching(css, /\.motion-pulse-soft\s*\{/).join('\n');
+    const name = /: (gs-[a-z-]+) /.exec(rule)?.[1];
+    expect(name).toBeDefined();
+    const keyframes = blocksMatching(css, new RegExp(`@keyframes ${name} \\{`)).join('\n');
+    expect(keyframes).toContain('outline-color');
+    expect(keyframes).not.toMatch(/(^|[\s;{])(opacity|color)\s*:/);
+  });
+
   test('row_in_staggers_by_the_stagger_index', async () => {
     const css = await buildCss(['motion-row-in']);
     const rule = blocksMatching(css, /\.motion-row-in\s*\{/).join('\n');
@@ -391,5 +405,70 @@ describe('motion layer', () => {
     const utilities = [...candidates].filter((c) => !/^(group|peer)(\/[\w-]+)?$/.test(c));
     expect(utilities.length).toBeGreaterThan(500);
     expect(await deadCandidates(utilities)).toEqual([]);
+  });
+});
+
+describe('transitions', () => {
+  test('arbitrary_transition_values_name_a_token_easing_for_every_property', async () => {
+    // A bare `opacity var(--gs-duration-slow)` falls back to the browser's default `ease`.
+    const offenders: string[] = [];
+    for (const file of [...variantFiles, ...recipeFiles]) {
+      for (const candidate of await classesOf(file)) {
+        const value = /^\[transition:(.+)\]$/.exec(utilityOf(candidate))?.[1];
+        if (value === undefined) continue;
+        let depth = 0;
+        let start = 0;
+        const parts: string[] = [];
+        for (let index = 0; index <= value.length; index += 1) {
+          const char = value[index];
+          if (char === '(') depth += 1;
+          else if (char === ')') depth -= 1;
+          else if ((char === ',' && depth === 0) || index === value.length) {
+            parts.push(value.slice(start, index));
+            start = index + 1;
+          }
+        }
+        for (const part of parts) {
+          if (!part.includes('var(--gs-ease-')) offenders.push(`${rel(file)}: ${part}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('hit areas', () => {
+  test('hit_area_grows_the_target_to_24px_without_taking_layout_space', async () => {
+    const css = await buildCss(['hit-area']);
+    const rule = blocksMatching(css, /\.hit-area(::after)?\s*\{/).join('\n');
+    expect(css).toMatch(/\.hit-area(\s*\{[^}]*&)?::after/);
+    expect(rule).toContain('position: absolute');
+    expect(rule).toContain('max(100%, 1.5rem)');
+    expect(rule).not.toMatch(/(^|\s)(padding|margin)[^;]*:/);
+  });
+
+  test('controls_drawn_under_24px_carry_a_positioned_hit_area', () => {
+    const small: [string, string][] = [
+      ['button xs', buttonVariants({ size: 'xs' }).root()],
+      ['icon button xs', iconButtonVariants({ size: 'xs' })],
+      ['toggle button xs', toggleButtonVariants({ size: 'xs' })],
+      ['traffic light', trafficLightsVariants({ kind: 'close' }).light()],
+      ['checkbox', checkboxBoxVariants()],
+      ['radio', radioVariants()],
+      ['switch', switchTrackVariants()],
+      ['slider lane', sliderVariants().control()],
+      ['popover close', popoverVariants().close()],
+      ['toast close', toastVariants().close()],
+      ['text field clear', textFieldClearVariants()],
+      ['password reveal', passwordFieldToggleVariants()],
+      ['breadcrumb link', breadcrumbsVariants({ size: 'sm' }).link()],
+    ];
+    const offenders = small
+      .filter(([, classes]) => {
+        const list = classes.split(/\s+/);
+        return !list.includes('hit-area') || !list.some((c) => /^(relative|absolute)$/.test(c));
+      })
+      .map(([name]) => name);
+    expect(offenders).toEqual([]);
   });
 });

@@ -28,7 +28,7 @@ export const iconButtonVariants = tv({
       ],
     },
     size: {
-      xs: 'size-control-xs rounded-sm',
+      xs: 'hit-area size-control-xs rounded-sm',
       sm: 'size-control-sm rounded-control',
       md: 'size-control-md rounded-control',
       lg: 'size-control-lg rounded-control',

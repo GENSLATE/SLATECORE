@@ -10,7 +10,7 @@ export const avatarVariants = tv({
     ],
     image: 'size-full object-cover',
     fallback:
-      'flex size-full items-center justify-center bg-accent-subtle font-semibold text-accent-fg uppercase',
+      'flex size-full items-center justify-center bg-accent-subtle font-semibold text-accent-fg-strong uppercase',
     // A canvas-coloured outline cuts the dot out of the avatar edge.
     status: 'absolute right-0 bottom-0 rounded-full outline-2 outline-canvas',
   },

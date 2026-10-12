@@ -40,7 +40,7 @@ export const buttonVariants = tv({
       danger: {
         root: [
           'bg-danger text-on-danger',
-          'not-data-disabled:hover:bg-danger-hover not-data-disabled:active:bg-danger',
+          'not-data-disabled:hover:bg-danger-hover not-data-disabled:active:bg-danger-active',
         ],
       },
       link: {
@@ -52,7 +52,7 @@ export const buttonVariants = tv({
       },
     },
     size: {
-      xs: { root: 'h-control-xs gap-1 rounded-sm px-[calc(--spacing(1.5)-1px)] text-xs' },
+      xs: { root: 'hit-area h-control-xs gap-1 rounded-sm px-[calc(--spacing(1.5)-1px)] text-xs' },
       sm: { root: 'h-control-sm gap-1 rounded-control px-[calc(--spacing(2)-1px)] text-sm' },
       md: { root: 'h-control-md gap-1.5 rounded-control px-[calc(--spacing(3)-1px)] text-base' },
       lg: { root: 'h-control-lg gap-2 rounded-control px-[calc(--spacing(4)-1px)] text-md' },

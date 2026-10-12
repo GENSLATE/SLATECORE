@@ -42,6 +42,33 @@
 }
 
 /*
+ * A 24px minimum pointer target (WCAG 2.5.8) for controls drawn smaller than that: an invisible
+ * ::after centred on the control, so the control keeps its drawn size and takes no layout space.
+ * The host must be positioned (relative or absolute) and must not also use a hairline-* utility.
+ */
+@utility hit-area {
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 1.5rem);
+    height: max(100%, 1.5rem);
+    translate: -50% -50%;
+  }
+}
+
+/*
+ * A transparency checkerboard from a flat token fill and a two-square mask: no image colours, so
+ * it follows the theme. Squares are 4px; used behind translucent colour previews only.
+ */
+@utility checkerboard {
+  background-color: var(--gs-color-fill-pressed);
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='4' height='4'/%3E%3Crect x='4' y='4' width='4' height='4'/%3E%3C/svg%3E");
+  mask-size: 8px 8px;
+}
+
+/*
  * Hairlines: a 1px separator on one edge, drawn by an absolutely positioned ::after so it never
  * takes layout space. Fixed-height bars (titlebar, status bar, tab strips, toolbars) keep their
  * exact token height and centre their children on whole pixels. The host becomes the containing

@@ -2,7 +2,7 @@ import { tv } from '../../../utils/cn.util';
 
 export const kbdVariants = tv({
   slots: {
-    root: 'inline-flex shrink-0 items-center whitespace-nowrap font-sans text-fg-muted',
+    root: 'inline-flex shrink-0 items-center whitespace-nowrap font-sans text-fg-secondary',
     key: [
       // A flat keycap: one control step with a 1px border.
       'inline-flex items-center justify-center rounded-xs border border-border bg-control font-medium font-sans text-fg-secondary',

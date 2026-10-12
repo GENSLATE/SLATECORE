@@ -6,7 +6,7 @@
  *   motion-fade-up     content entering a view: fades in while rising 4px
  *   motion-row-in      list rows: a short rise, staggered by `style={{ '--stagger': index }}`
  *   motion-pop         launch / confirm feedback: a quick scale pop
- *   motion-pulse-soft  "Coming soon" teasers: a slow, calm opacity breath
+ *   motion-pulse-soft  "Coming soon" teasers: a slow, calm ring that breathes around the label
  */
 
 @theme {
@@ -33,6 +33,13 @@
   @keyframes gs-pulse-soft {
     50% {
       opacity: 0.55;
+    }
+  }
+
+  /* The ring around a labelled badge: the label itself never dims, so it keeps its contrast. */
+  @keyframes gs-pulse-ring {
+    50% {
+      outline-color: color-mix(in srgb, currentColor 55%, transparent);
     }
   }
 
@@ -91,7 +98,9 @@
 }
 
 @utility motion-pulse-soft {
-  animation: gs-pulse-soft calc(var(--gs-duration-slow) * 7) var(--gs-ease-standard) infinite;
+  outline: 1px solid transparent;
+  outline-offset: 2px;
+  animation: gs-pulse-ring calc(var(--gs-duration-slow) * 7) var(--gs-ease-standard) infinite;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;

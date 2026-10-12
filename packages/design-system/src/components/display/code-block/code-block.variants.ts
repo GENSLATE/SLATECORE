@@ -6,7 +6,7 @@ export const codeBlockVariants = tv({
     header: 'hairline-b flex h-8 shrink-0 items-center gap-2 pr-1 pl-3',
     title: 'truncate-flex flex-1 text-fg-secondary text-sm',
     language: 'font-mono text-2xs text-fg-muted uppercase tracking-wide',
-    pre: 'scrollbar-thin m-0 select-text overflow-auto py-2.5 font-mono text-code text-fg',
+    pre: 'scrollbar-thin focus-ring-inset m-0 select-text overflow-auto py-2.5 font-mono text-code text-fg',
     line: 'flex px-3',
     gutter: 'mr-4 inline-block w-6 shrink-0 select-none text-right text-fg-disabled tabular-nums',
     floating: [

@@ -14,7 +14,7 @@ const stack = [
   'data-ending-style:data-[swipe-direction=down]:[transform:translateY(calc(var(--toast-swipe-movement-y)+150%))]',
   'data-ending-style:data-[swipe-direction=right]:[transform:translateX(calc(var(--toast-swipe-movement-x)+150%))_translateY(var(--offset-y))]',
   'after:absolute after:top-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-[""]',
-  '[transition:transform_var(--gs-duration-slow)_var(--gs-ease-emphasized),opacity_var(--gs-duration-slow),height_var(--gs-duration-fast)]',
+  '[transition:transform_var(--gs-duration-slow)_var(--gs-ease-emphasized),opacity_var(--gs-duration-slow)_var(--gs-ease-standard),height_var(--gs-duration-fast)_var(--gs-ease-standard)]',
 ];
 
 export const toastVariants = tv({
@@ -38,7 +38,7 @@ export const toastVariants = tv({
       'hover:underline hover:underline-offset-2 active:text-accent-active',
     ],
     close: [
-      'focus-ring -mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-sm text-fg-muted',
+      'hit-area focus-ring relative -mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-sm text-fg-muted',
       'transition-colors duration-fast ease-standard hover:bg-fill-hover hover:text-fg active:bg-fill-pressed',
     ],
   },

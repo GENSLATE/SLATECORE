@@ -21,7 +21,7 @@ export const toggleButtonVariants = tv({
       ],
     },
     size: {
-      xs: 'h-control-xs rounded-sm px-[calc(--spacing(1.5)-1px)] text-xs',
+      xs: 'hit-area h-control-xs rounded-sm px-[calc(--spacing(1.5)-1px)] text-xs',
       sm: 'h-control-sm rounded-control px-[calc(--spacing(2)-1px)] text-sm',
       md: 'h-control-md rounded-control px-[calc(--spacing(2.5)-1px)] text-base',
       lg: 'h-control-lg rounded-control px-[calc(--spacing(3)-1px)] text-md',

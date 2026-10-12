@@ -15,7 +15,12 @@ export function ColorSwatch({
   return (
     <div data-slot="color-swatch" className={cn(styles.root(), className)} {...props}>
       <div data-slot="color-swatch-chip" className={styles.chip()}>
-        <div className={styles.fill()} style={{ background: color }} />
+        <div data-slot="color-swatch-checker" aria-hidden className={styles.checker()} />
+        <div
+          data-slot="color-swatch-fill"
+          className={styles.fill()}
+          style={{ background: color }}
+        />
       </div>
       {(name != null || value != null) && (
         <div className={styles.caption()}>

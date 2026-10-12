@@ -31,17 +31,17 @@ export const badgeVariants = tv({
     {
       variant: 'subtle',
       tone: 'neutral',
-      class: { root: 'bg-fill-pressed text-fg-secondary' },
+      class: { root: 'bg-fill-pressed text-fg' },
     },
     {
       variant: 'subtle',
       tone: 'accent',
-      class: { root: 'bg-accent-subtle text-accent-fg' },
+      class: { root: 'bg-accent-subtle text-accent-fg-strong' },
     },
     {
       variant: 'subtle',
       tone: 'success',
-      class: { root: 'bg-success-subtle text-success-fg' },
+      class: { root: 'bg-success-subtle text-success-fg-strong' },
     },
     {
       variant: 'subtle',
@@ -51,12 +51,12 @@ export const badgeVariants = tv({
     {
       variant: 'subtle',
       tone: 'danger',
-      class: { root: 'bg-danger-subtle text-danger-fg' },
+      class: { root: 'bg-danger-subtle text-danger-fg-strong' },
     },
     {
       variant: 'subtle',
       tone: 'info',
-      class: { root: 'bg-info-subtle text-info-fg' },
+      class: { root: 'bg-info-subtle text-info-fg-strong' },
     },
     {
       variant: 'solid',
