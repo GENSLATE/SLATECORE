@@ -19,7 +19,7 @@ export const treeVariants = tv({
     spacer: 'size-4 shrink-0',
     icon: 'text-fg-muted',
     label: 'truncate-flex flex-1',
-    trailing: 'ml-auto shrink-0 pl-2 text-fg-muted text-sm',
+    trailing: 'ml-auto shrink-0 pl-2 in-data-[selected]:text-fg-secondary text-fg-muted text-sm',
     guide:
       'pointer-events-none absolute inset-y-0 w-px bg-border-subtle transition-opacity duration-fast ease-standard',
     group: 'm-0 list-none p-0',

@@ -55,7 +55,7 @@ export function AppTitleBar({
             data-tauri-drag-region
             className="truncate-flex pl-1 font-medium text-sm text-titlebar-fg window-inactive:text-titlebar-fg-inactive"
           >
-            {KIT_BRAND} <span className="font-normal opacity-70">Design Kit</span>
+            {KIT_BRAND} <span className="font-normal">Design Kit</span>
           </span>
         </div>
       }
