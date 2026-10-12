@@ -176,6 +176,25 @@ describe('launcher frame', () => {
     ).not.toBeNull();
   });
 
+  test('the_slid_rail_stays_above_the_wider_panels_so_it_keeps_receiving_clicks', async () => {
+    await renderLauncher();
+    // The main panel and the command bar span the whole grid, so under the slid rail they would
+    // swallow its clicks unless the rail is stacked above them.
+    const rail = document.querySelector('[data-slot="launcher-frame-body"] > .launcher-slide');
+    expect(rail?.className).toMatch(/\bz-raised\b/);
+  });
+
+  test('small_launcher_controls_get_a_24px_hit_area', async () => {
+    await renderLauncher({ issue: 'line 3: expected a value' });
+    const tabs = within(screen.getByRole('tablist', { name: 'App sources' })).getAllByRole('tab');
+    for (const tab of tabs) expect(tab.className).toMatch(/\bhit-area\b/);
+    const bar = document.querySelector('[data-slot="launcher-status-bar"]');
+    if (!(bar instanceof HTMLElement)) throw new Error('status bar missing');
+    expect(within(bar).getByRole('button', { name: 'Settings' }).className).toMatch(/\bhit-area\b/);
+    // The search box is the whole height of its field, not a 16px strip inside it.
+    expect(screen.getByRole('combobox', { name: /Search apps/ }).className).toMatch(/\bh-full\b/);
+  });
+
   test('run_mode_badge_sits_in_the_titlebar_not_the_status_bar', async () => {
     await renderLauncher();
     const titleBar = document.querySelector('[data-slot="launcher-titlebar"]');

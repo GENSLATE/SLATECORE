@@ -63,7 +63,7 @@ export function SourceTabs({ tabs, value, onChange }: SourceTabsProps) {
                 icon={SOURCE_ICON[tab.source]}
                 aria-label={`${label}, ${tab.count} apps`}
                 className={cn(
-                  'min-w-0 gap-1.5',
+                  'hit-area min-w-0 gap-1.5',
                   active ? 'flex-auto' : 'w-12 flex-none justify-center px-0',
                 )}
               >

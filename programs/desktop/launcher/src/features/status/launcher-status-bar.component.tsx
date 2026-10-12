@@ -67,7 +67,7 @@ export function LauncherStatusBar({
             <button
               type="button"
               onClick={onOpenSettingsFile}
-              className="focus-ring flex cursor-interactive items-center gap-1 rounded-sm px-1 text-warning-fg hover:bg-fill-hover"
+              className="focus-ring hit-area relative flex cursor-interactive items-center gap-1 rounded-sm px-1 text-warning-fg hover:bg-fill-hover"
             >
               <Icon name="codicon:warning" size={12} />
               Settings

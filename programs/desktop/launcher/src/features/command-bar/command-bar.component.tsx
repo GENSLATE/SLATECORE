@@ -77,7 +77,7 @@ export function CommandBar({
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={onKeyDown}
-            className="min-w-0 flex-1 bg-transparent text-fg-strong text-sm outline-none placeholder:text-fg-muted"
+            className="h-full min-w-0 flex-1 bg-transparent text-fg-strong text-sm outline-none placeholder:text-fg-muted"
           />
           {value === '' && focusShortcut.trim() !== '' ? (
             <Kbd shortcut={focusShortcut} size="sm" className="shrink-0" />

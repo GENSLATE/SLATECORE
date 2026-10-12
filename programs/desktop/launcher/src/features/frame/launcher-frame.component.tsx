@@ -61,7 +61,7 @@ export function LauncherFrame({
             )}
           >
             <div className="col-span-2 min-w-0">{titleBar}</div>
-            <div className="launcher-slide hairline-r row-span-2 flex min-h-0 min-w-0 flex-col bg-surface-sidebar">
+            <div className="launcher-slide hairline-r z-raised row-span-2 flex min-h-0 min-w-0 flex-col bg-surface-sidebar">
               <div className="min-h-0 flex-1">{rail}</div>
               <div className="hairline-t h-launcher-band shrink-0">{railFooter}</div>
             </div>

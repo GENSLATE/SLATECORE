@@ -49,9 +49,15 @@ export function AppearanceSection() {
               value={size}
               onValueChange={(value) => write('size', value)}
             >
-              <SegmentedControlItem value="s">Small</SegmentedControlItem>
-              <SegmentedControlItem value="m">Medium</SegmentedControlItem>
-              <SegmentedControlItem value="l">Large</SegmentedControlItem>
+              <SegmentedControlItem value="s" className="hit-area">
+                Small
+              </SegmentedControlItem>
+              <SegmentedControlItem value="m" className="hit-area">
+                Medium
+              </SegmentedControlItem>
+              <SegmentedControlItem value="l" className="hit-area">
+                Large
+              </SegmentedControlItem>
             </SegmentedControl>
           }
         />
@@ -66,8 +72,12 @@ export function AppearanceSection() {
               value={settings.config.status.mode}
               onValueChange={(value) => write('statusMode', value)}
             >
-              <SegmentedControlItem value="temps">Temperatures</SegmentedControlItem>
-              <SegmentedControlItem value="usage">Usage</SegmentedControlItem>
+              <SegmentedControlItem value="temps" className="hit-area">
+                Temperatures
+              </SegmentedControlItem>
+              <SegmentedControlItem value="usage" className="hit-area">
+                Usage
+              </SegmentedControlItem>
             </SegmentedControl>
           }
         />
