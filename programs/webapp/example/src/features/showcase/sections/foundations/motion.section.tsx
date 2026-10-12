@@ -240,7 +240,7 @@ export function MotionSection() {
 
       <Specimen
         title="motion-pulse-soft"
-        description="Coming soon teasers: a slow, calm opacity breath that never exceeds a 55% dip."
+        description="Coming soon teasers: a slow, calm ring that breathes around the label. The label itself never dims, so it keeps its contrast."
         code={'<Badge tone="accent" pill className="motion-pulse-soft">Coming soon</Badge>'}
         stageClassName="flex-col items-stretch gap-4"
       >

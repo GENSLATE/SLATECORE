@@ -26,7 +26,9 @@
       })();
     </script>
     <style>
-      /* Canvas colours until the design-system stylesheet arrives (Nord0 / Snow Storm canvas). */
+      /* Canvas colours until the design-system stylesheet arrives (Nord0 / Snow Storm canvas).
+         These two hex values are exempt from the tokens-only rule: they paint before first paint,
+         when no token stylesheet exists yet. */
       html[data-theme='polar-night'] { background: #2e3440; }
       html[data-theme='snow-storm'] { background: #f4f7fc; }
       body { margin: 0; }

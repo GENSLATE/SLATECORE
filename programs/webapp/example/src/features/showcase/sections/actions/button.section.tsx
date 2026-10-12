@@ -18,7 +18,7 @@ const VARIANTS: readonly {
     pressed: 'bg-control-pressed',
   },
   { variant: 'ghost', label: 'Ghost', hover: 'bg-fill-hover', pressed: 'bg-fill-pressed' },
-  { variant: 'danger', label: 'Danger', hover: 'bg-danger-hover', pressed: 'brightness-90' },
+  { variant: 'danger', label: 'Danger', hover: 'bg-danger-hover', pressed: 'bg-danger-active' },
   {
     variant: 'link',
     label: 'Link',
