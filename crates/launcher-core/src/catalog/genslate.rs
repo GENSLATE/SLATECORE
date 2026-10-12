@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use super::icon::IconSource;
 use super::model::{AppEntry, AppId, AppStatus, Source, title_case};
+use crate::config::issue_text;
 use crate::metadata::AppMetadata;
 
 /// Folders the GENSLATE scanner reads.
@@ -63,7 +64,7 @@ fn entry(roots: &GenslateRoots, key: &str) -> AppEntry {
     let (meta, broken) = match AppMetadata::load(&roots.metadata.join(format!("{key}.toml"))) {
         Ok(meta) => (meta, false),
         Err(error) => {
-            log::warn!("{error}");
+            log::warn!("{}", issue_text(&error));
             (AppMetadata::default(), true)
         }
     };

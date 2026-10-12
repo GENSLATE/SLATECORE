@@ -18,7 +18,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::LauncherError;
-use crate::error::read_error;
+use crate::error::{file_label, path_label, read_error};
 
 /// File name of [`LauncherConfig`] inside `other/launcher/configs/`.
 pub const SETTINGS_FILE: &str = "settings.toml";
@@ -331,17 +331,27 @@ impl Settings {
     }
 }
 
-/// One line for the UI: the file's name (not its folder) and what is wrong with it.
+/// One line for the UI and the log: the file's name (or its place below `programs/`), never a
+/// drive or a folder of the user, and what is wrong with it.
 pub(crate) fn issue_text(error: &LauncherError) -> String {
-    let name = |path: &Path| {
-        path.file_name()
-            .unwrap_or(path.as_os_str())
-            .to_string_lossy()
-            .into_owned()
-    };
     match error {
-        LauncherError::Parse { path, message } => format!("{}: {message}", name(path)),
-        LauncherError::Read { path, source } => format!("could not read {}: {source}", name(path)),
+        LauncherError::Parse { path, message } => format!("{}: {message}", file_label(path)),
+        LauncherError::Read { path, source } => {
+            format!("could not read {}: {source}", file_label(path))
+        }
+        LauncherError::Write { path, source } => {
+            format!("could not write {}: {source}", file_label(path))
+        }
+        LauncherError::OutsideRoot(path) => {
+            format!(
+                "{} is not inside an allowed programs folder",
+                path_label(path)
+            )
+        }
+        LauncherError::Spawn { path, source } => {
+            format!("could not start {}: {source}", path_label(path))
+        }
+        LauncherError::Watch(error) => format!("file watching failed: {:?}", error.kind),
         other => other.to_string(),
     }
 }

@@ -104,8 +104,9 @@ impl Catalog {
             .map(|source| {
                 let path = roots.metadata.join(source.settings_file());
                 let settings = TabSettings::load(&path).unwrap_or_else(|error| {
-                    log::warn!("{error}; using default tab settings");
-                    issues.push(issue_text(&error));
+                    let issue = issue_text(&error);
+                    log::warn!("{issue}; using default tab settings");
+                    issues.push(issue);
                     TabSettings::default()
                 });
                 (source, settings)

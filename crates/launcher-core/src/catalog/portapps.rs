@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::error::path_label;
+
 use super::genslate::{has_files, is_relative_inside, list};
 use super::icon::IconSource;
 use super::model::{AppEntry, AppId, AppStatus, Source};
@@ -44,14 +46,17 @@ fn entry(package: &Path) -> Option<AppEntry> {
             return without_manifest(package, folder);
         }
         Err(error) => {
-            log::warn!("{}: {error}; listing it as unavailable", package.display());
+            log::warn!(
+                "{}: {error}; listing it as unavailable",
+                path_label(package)
+            );
             return Some(unavailable(package, folder, AppStatus::BrokenManifest));
         }
     };
     let Some(json) = parse_manifest(&bytes) else {
         log::warn!(
             "{}: portapp.json is not valid; listing it as unavailable",
-            package.display()
+            path_label(package)
         );
         return Some(unavailable(package, folder, AppStatus::BrokenManifest));
     };
@@ -88,7 +93,7 @@ fn without_manifest(package: &Path, folder: &str) -> Option<AppEntry> {
     let Some(exe) = exe_for(package, folder, "").or_else(|| only_exe(package)) else {
         log::warn!(
             "{}: no portapp.json and no program to tell apart; listing it as unavailable",
-            package.display()
+            path_label(package)
         );
         return Some(unavailable(package, folder, AppStatus::BrokenManifest));
     };

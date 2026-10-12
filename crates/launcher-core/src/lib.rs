@@ -21,6 +21,8 @@ pub mod config;
 mod error;
 pub mod geometry;
 pub mod launch;
+#[cfg(test)]
+mod log_paths;
 pub mod metadata;
 pub mod recent;
 pub mod system;

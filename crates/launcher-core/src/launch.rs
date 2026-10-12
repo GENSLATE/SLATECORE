@@ -103,8 +103,9 @@ impl LaunchSpec {
     }
 }
 
-/// Environment variable names are case-insensitive on Windows.
-fn is_webview2_variable(name: &OsStr) -> bool {
+/// Whether `name` is a `WEBVIEW2_*` variable (the launcher's own `WebView2` settings, which a
+/// started app must not inherit). Case-insensitive, like environment names on Windows.
+pub fn is_webview2_variable(name: &OsStr) -> bool {
     name.to_str()
         .is_some_and(|name| name.to_ascii_uppercase().starts_with(WEBVIEW2_PREFIX))
 }
@@ -205,6 +206,19 @@ mod tests {
             .ok_or("expected an error")?;
         assert_eq!(error.kind(), "unavailable");
         Ok(())
+    }
+
+    #[test]
+    fn webview2_variables_are_recognised_by_prefix_in_any_case() {
+        for name in [
+            "WEBVIEW2_USER_DATA_FOLDER",
+            "webview2_browser_executable_folder",
+        ] {
+            assert!(is_webview2_variable(OsStr::new(name)), "{name}");
+        }
+        for name in ["PATH", "TEMP", "MY_WEBVIEW2_X", ""] {
+            assert!(!is_webview2_variable(OsStr::new(name)), "{name}");
+        }
     }
 
     #[test]

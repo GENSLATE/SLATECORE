@@ -16,6 +16,7 @@ use std::time::Duration;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::LauncherError;
+use crate::error::file_label;
 
 /// A folder to watch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,7 +69,11 @@ pub fn watch(
             RecursiveMode::NonRecursive
         };
         if let Err(error) = watcher.watch(&target.path, mode) {
-            log::debug!("not watching {}: {error}", target.path.display());
+            log::debug!(
+                "not watching {}: {:?}",
+                file_label(&target.path),
+                error.kind
+            );
         }
     }
     thread::Builder::new()

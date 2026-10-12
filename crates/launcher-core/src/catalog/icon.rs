@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::LauncherError;
-use crate::error::{read_error, write_error};
+use crate::error::{file_label, read_error, write_error};
 
 /// Where an app's icon comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,11 +92,19 @@ fn cached_exe_icon(exe: &Path, cache_dir: &Path) -> Result<IconData, LauncherErr
     if let Some(parent) = cached.parent() {
         fs::create_dir_all(parent).map_err(write_error(parent))?;
     }
-    // The cache is an optimisation: failing to write it must not hide the icon.
-    if let Err(error) = fs::write(&cached, &data.bytes) {
-        log::debug!("icon cache write failed for {}: {error}", cached.display());
-    }
+    store_in_cache(&cached, &data.bytes);
     Ok(data)
+}
+
+/// The cache is an optimisation: failing to write it must not hide the icon. The log names the
+/// cache file, not its folder.
+fn store_in_cache(cached: &Path, bytes: &[u8]) {
+    if let Err(error) = fs::write(cached, bytes) {
+        log::debug!(
+            "icon cache write failed for {}: {error}",
+            file_label(cached)
+        );
+    }
 }
 
 /// The cache file for an executable's icon. The key is the exe's path *below* `programs/`
@@ -292,6 +300,19 @@ mod tests {
             ["opt", "tools", "y.exe"]
         );
         assert_eq!(below_programs(Path::new("")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_failed_cache_write_is_logged_by_file_name_only() -> Result<(), Box<dyn std::error::Error>>
+    {
+        // A folder where the cache file should go makes the write fail.
+        let tree = TempTree::new()?.dir("cache/icons/0123456789abcdef.png")?;
+        let cached = tree.join("cache/icons/0123456789abcdef.png");
+        let ((), lines) = crate::log_paths::capture(|| store_in_cache(&cached, b"png"));
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("0123456789abcdef.png"), "{lines:?}");
+        crate::log_paths::assert_no_paths(&lines, tree.path());
+        Ok(())
     }
 
     #[test]

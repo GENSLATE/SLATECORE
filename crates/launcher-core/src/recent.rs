@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::LauncherError;
 use crate::catalog::AppId;
-use crate::config::load_toml;
+use crate::config::{issue_text, load_toml};
 use crate::metadata::write_atomic;
 
 /// File name of the launch history inside `other/launcher/database/`.
@@ -42,7 +42,7 @@ impl RecentLaunches {
     /// Reads the history; a missing or broken file is an empty history.
     pub fn load(path: &Path) -> Self {
         load_toml(path).unwrap_or_else(|error: LauncherError| {
-            log::warn!("{error}; starting a new launch history");
+            log::warn!("{}; starting a new launch history", issue_text(&error));
             Self::default()
         })
     }

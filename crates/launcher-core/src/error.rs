@@ -1,6 +1,7 @@
 //! [`LauncherError`]: every failure the launcher core can report.
 
-use std::path::PathBuf;
+// cspell:ignore rposition
+use std::path::{Path, PathBuf};
 
 /// Errors from settings, catalog, launching and the command registry.
 #[derive(Debug, thiserror::Error)]
@@ -94,12 +95,93 @@ impl LauncherError {
     }
 }
 
-pub(crate) fn read_error(path: &std::path::Path) -> impl FnOnce(std::io::Error) -> LauncherError {
+/// How a path is written in the log and in issue texts: the part below the last `programs`
+/// folder (`portapps.io/brave-portable`), or just the file name when it is not under one. Never
+/// a drive letter or a user folder: the log is persisted and travels with the drive.
+pub(crate) fn path_label(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let segments = segments(&text);
+    segments
+        .iter()
+        .rposition(|segment| segment.eq_ignore_ascii_case("programs"))
+        .and_then(|index| segments.get(index + 1..))
+        .filter(|below| !below.is_empty())
+        .map_or_else(|| last_segment(&segments), |below| below.join("/"))
+}
+
+/// The last component of a path (either slash), without its folders.
+pub(crate) fn file_label(path: &Path) -> String {
+    last_segment(&segments(&path.to_string_lossy()))
+}
+
+fn segments(text: &str) -> Vec<&str> {
+    text.split(['/', '\\'])
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+/// The last segment, unless it is only a drive (`C:`).
+fn last_segment(segments: &[&str]) -> String {
+    segments
+        .iter()
+        .rev()
+        .find(|segment| !segment.ends_with(':'))
+        .map_or_else(String::new, |segment| (*segment).to_owned())
+}
+
+pub(crate) fn read_error(path: &Path) -> impl FnOnce(std::io::Error) -> LauncherError {
     let path = path.to_path_buf();
     move |source| LauncherError::Read { path, source }
 }
 
-pub(crate) fn write_error(path: &std::path::Path) -> impl FnOnce(std::io::Error) -> LauncherError {
+pub(crate) fn write_error(path: &Path) -> impl FnOnce(std::io::Error) -> LauncherError {
     let path = path.to_path_buf();
     move |source| LauncherError::Write { path, source }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_are_labelled_below_programs_or_by_file_name() {
+        let label = |path: &str| path_label(Path::new(path));
+        assert_eq!(
+            label("S:\\SLATECORE\\programs\\portapps.io\\brave-portable"),
+            "portapps.io/brave-portable"
+        );
+        assert_eq!(
+            label("/media/me/USB/SLATECORE/Programs/genslate/x/x.exe"),
+            "genslate/x/x.exe"
+        );
+        assert_eq!(label("D:\\a\\programs\\b\\programs\\c.exe"), "c.exe");
+        // Not under programs/: the file name only.
+        assert_eq!(label("E:\\Users\\me\\cache\\icons\\ab12.png"), "ab12.png");
+        assert_eq!(label("/home/me/config/settings.toml"), "settings.toml");
+        // The programs folder itself, a bare drive and nothing at all leak nothing.
+        assert_eq!(label("S:\\SLATECORE\\programs"), "programs");
+        assert_eq!(label("C:\\"), "");
+        assert_eq!(label(""), "");
+        assert_eq!(
+            file_label(Path::new("S:\\SLATECORE\\programs\\a\\b.exe")),
+            "b.exe"
+        );
+    }
+
+    #[test]
+    fn no_label_carries_a_drive_or_a_root() {
+        for path in [
+            "S:\\SLATECORE\\programs\\portapps.io\\x",
+            "C:\\Users\\me\\AppData\\settings.toml",
+            "\\\\server\\share\\programs\\a",
+            "/mnt/usb/programs/a/b",
+        ] {
+            for label in [path_label(Path::new(path)), file_label(Path::new(path))] {
+                assert!(
+                    !label.contains(':') && !label.starts_with(['/', '\\']),
+                    "{path} -> {label}"
+                );
+            }
+        }
+    }
 }

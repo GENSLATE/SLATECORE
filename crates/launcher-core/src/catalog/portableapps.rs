@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use ini::Ini;
 
+use crate::error::path_label;
+
 use super::genslate::{is_relative_inside, list};
 use super::icon::IconSource;
 use super::model::{AppEntry, AppId, AppStatus, Source};
@@ -40,7 +42,10 @@ fn package_entries(package: &Path) -> Vec<AppEntry> {
         Manifest::Parsed(ini) => ini,
         Manifest::Missing => return plain_exe_entries(package, folder),
         Manifest::Broken(reason) => {
-            log::warn!("{}: {reason}; listing it as unavailable", package.display());
+            log::warn!(
+                "{}: {reason}; listing it as unavailable",
+                path_label(package)
+            );
             return vec![broken_entry(package, folder)];
         }
     };
