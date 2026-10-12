@@ -173,6 +173,66 @@
     },
     {
       "theme": "polar-night",
+      "fg": "on-danger",
+      "bg": "danger-hover",
+      "fgHex": "#ffffff",
+      "bgHex": "#b55861",
+      "ratio": 4.63,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "polar-night",
+      "fg": "on-danger",
+      "bg": "danger-active",
+      "fgHex": "#ffffff",
+      "bgHex": "#973d48",
+      "ratio": 6.82,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "polar-night",
+      "fg": "accent-fg-strong",
+      "bg": "accent-subtle",
+      "fgHex": "#9bd3e4",
+      "bgHex": "#3b4854",
+      "ratio": 5.73,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "polar-night",
+      "fg": "success-fg-strong",
+      "bg": "success-subtle",
+      "fgHex": "#b6d19f",
+      "bgHex": "#3e474b",
+      "ratio": 5.71,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "polar-night",
+      "fg": "danger-fg-strong",
+      "bg": "danger-subtle",
+      "fgHex": "#ffa2a8",
+      "bgHex": "#453b47",
+      "ratio": 5.58,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "polar-night",
+      "fg": "info-fg-strong",
+      "bg": "info-subtle",
+      "fgHex": "#a6c7e8",
+      "bgHex": "#3b4555",
+      "ratio": 5.51,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "polar-night",
       "fg": "danger-fg",
       "bg": "canvas",
       "fgHex": "#f6929a",
@@ -468,6 +528,66 @@
       "fgHex": "#ffffff",
       "bgHex": "#a44953",
       "ratio": 5.74,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "snow-storm",
+      "fg": "on-danger",
+      "bg": "danger-hover",
+      "fgHex": "#ffffff",
+      "bgHex": "#9e434e",
+      "ratio": 6.24,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "snow-storm",
+      "fg": "on-danger",
+      "bg": "danger-active",
+      "fgHex": "#ffffff",
+      "bgHex": "#973d48",
+      "ratio": 6.82,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "snow-storm",
+      "fg": "accent-fg-strong",
+      "bg": "accent-subtle",
+      "fgHex": "#42648d",
+      "bgHex": "#e2e9f2",
+      "ratio": 4.99,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "snow-storm",
+      "fg": "success-fg-strong",
+      "bg": "success-subtle",
+      "fgHex": "#51693b",
+      "bgHex": "#e5ede8",
+      "ratio": 5.13,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "snow-storm",
+      "fg": "danger-fg-strong",
+      "bg": "danger-subtle",
+      "fgHex": "#9e434e",
+      "bgHex": "#eee5ea",
+      "ratio": 5.06,
+      "min": 4.5,
+      "pass": true
+    },
+    {
+      "theme": "snow-storm",
+      "fg": "info-fg-strong",
+      "bg": "info-subtle",
+      "fgHex": "#476583",
+      "bgHex": "#e2e9f3",
+      "ratio": 4.97,
       "min": 4.5,
       "pass": true
     },

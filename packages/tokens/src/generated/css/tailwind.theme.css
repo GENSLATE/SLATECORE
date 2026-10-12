@@ -31,6 +31,7 @@
   --color-accent-hover: var(--gs-color-accent-hover);
   --color-accent-active: var(--gs-color-accent-active);
   --color-accent-fg: var(--gs-color-accent-fg);
+  --color-accent-fg-strong: var(--gs-color-accent-fg-strong);
   --color-accent-subtle: var(--gs-color-accent-subtle);
   --color-accent-border: var(--gs-color-accent-border);
   --color-focus: var(--gs-color-focus);
@@ -47,8 +48,10 @@
   --color-thumb: var(--gs-color-thumb);
   --color-danger: var(--gs-color-danger);
   --color-danger-hover: var(--gs-color-danger-hover);
+  --color-danger-active: var(--gs-color-danger-active);
   --color-on-danger: var(--gs-color-on-danger);
   --color-danger-fg: var(--gs-color-danger-fg);
+  --color-danger-fg-strong: var(--gs-color-danger-fg-strong);
   --color-danger-subtle: var(--gs-color-danger-subtle);
   --color-danger-border: var(--gs-color-danger-border);
   --color-warning: var(--gs-color-warning);
@@ -61,12 +64,14 @@
   --color-success-hover: var(--gs-color-success-hover);
   --color-on-success: var(--gs-color-on-success);
   --color-success-fg: var(--gs-color-success-fg);
+  --color-success-fg-strong: var(--gs-color-success-fg-strong);
   --color-success-subtle: var(--gs-color-success-subtle);
   --color-success-border: var(--gs-color-success-border);
   --color-info: var(--gs-color-info);
   --color-info-hover: var(--gs-color-info-hover);
   --color-on-info: var(--gs-color-on-info);
   --color-info-fg: var(--gs-color-info-fg);
+  --color-info-fg-strong: var(--gs-color-info-fg-strong);
   --color-info-subtle: var(--gs-color-info-subtle);
   --color-info-border: var(--gs-color-info-border);
   --color-titlebar-bg: var(--gs-titlebar-bg);

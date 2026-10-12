@@ -25,6 +25,13 @@ export const STANDARD_CONTRAST: readonly ContrastRequirement[] = [
   { fg: 'focus', bg: 'surface-sidebar', min: 3 },
   // Status
   { fg: 'on-danger', bg: 'danger', min: 4.5 },
+  { fg: 'on-danger', bg: 'danger-hover', min: 4.5 },
+  { fg: 'on-danger', bg: 'danger-active', min: 4.5 },
+  // Tinted badges and chips: strong text on its tint (over the canvas; tests also cover raised surfaces)
+  { fg: 'accent-fg-strong', bg: 'accent-subtle', min: 4.5 },
+  { fg: 'success-fg-strong', bg: 'success-subtle', min: 4.5 },
+  { fg: 'danger-fg-strong', bg: 'danger-subtle', min: 4.5 },
+  { fg: 'info-fg-strong', bg: 'info-subtle', min: 4.5 },
   { fg: 'danger-fg', bg: 'canvas', min: 4.5 },
   { fg: 'on-warning', bg: 'warning', min: 4.5 },
   { fg: 'warning-fg', bg: 'canvas', min: 4.5 },

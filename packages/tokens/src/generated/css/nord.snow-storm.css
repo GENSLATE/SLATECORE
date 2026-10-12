@@ -28,6 +28,7 @@
   --gs-color-accent-hover: var(--gs-nord-10-d10);
   --gs-color-accent-active: var(--gs-nord-10-d12);
   --gs-color-accent-fg: var(--gs-nord-10-d08);
+  --gs-color-accent-fg-strong: var(--gs-nord-10-d10);
   --gs-color-accent-subtle: rgb(94 129 172 / 0.12);
   --gs-color-accent-border: rgb(94 129 172 / 0.45);
   --gs-color-focus: var(--gs-nord-10);
@@ -44,8 +45,10 @@
   --gs-color-thumb: white;
   --gs-color-danger: var(--gs-nord-11-d08);
   --gs-color-danger-hover: var(--gs-nord-11-d10);
+  --gs-color-danger-active: var(--gs-nord-11-d12);
   --gs-color-on-danger: white;
   --gs-color-danger-fg: var(--gs-nord-11-d10);
+  --gs-color-danger-fg-strong: var(--gs-nord-11-d10);
   --gs-color-danger-subtle: rgb(191 97 106 / 0.12);
   --gs-color-danger-border: rgb(191 97 106 / 0.45);
   --gs-color-warning: var(--gs-nord-13);
@@ -58,12 +61,14 @@
   --gs-color-success-hover: var(--gs-nord-14-d12);
   --gs-color-on-success: var(--gs-nord-0);
   --gs-color-success-fg: var(--gs-nord-14-d28);
+  --gs-color-success-fg-strong: var(--gs-nord-14-d28);
   --gs-color-success-subtle: rgb(163 190 140 / 0.18);
   --gs-color-success-border: var(--gs-nord-14-d12);
   --gs-color-info: var(--gs-nord-9-d14);
   --gs-color-info-hover: var(--gs-nord-9-d20);
   --gs-color-on-info: white;
   --gs-color-info-fg: var(--gs-nord-9-d20);
+  --gs-color-info-fg-strong: var(--gs-nord-9-d20);
   --gs-color-info-subtle: rgb(129 161 193 / 0.16);
   --gs-color-info-border: rgb(129 161 193 / 0.5);
   --gs-titlebar-bg: var(--gs-nord-6);
@@ -185,6 +190,7 @@
     --gs-color-accent-hover: var(--gs-nord-10-d10);
     --gs-color-accent-active: var(--gs-nord-10-d12);
     --gs-color-accent-fg: var(--gs-nord-10-d08);
+    --gs-color-accent-fg-strong: var(--gs-nord-10-d10);
     --gs-color-accent-subtle: rgb(94 129 172 / 0.12);
     --gs-color-accent-border: rgb(94 129 172 / 0.45);
     --gs-color-focus: var(--gs-nord-10);
@@ -201,8 +207,10 @@
     --gs-color-thumb: white;
     --gs-color-danger: var(--gs-nord-11-d08);
     --gs-color-danger-hover: var(--gs-nord-11-d10);
+    --gs-color-danger-active: var(--gs-nord-11-d12);
     --gs-color-on-danger: white;
     --gs-color-danger-fg: var(--gs-nord-11-d10);
+    --gs-color-danger-fg-strong: var(--gs-nord-11-d10);
     --gs-color-danger-subtle: rgb(191 97 106 / 0.12);
     --gs-color-danger-border: rgb(191 97 106 / 0.45);
     --gs-color-warning: var(--gs-nord-13);
@@ -215,12 +223,14 @@
     --gs-color-success-hover: var(--gs-nord-14-d12);
     --gs-color-on-success: var(--gs-nord-0);
     --gs-color-success-fg: var(--gs-nord-14-d28);
+    --gs-color-success-fg-strong: var(--gs-nord-14-d28);
     --gs-color-success-subtle: rgb(163 190 140 / 0.18);
     --gs-color-success-border: var(--gs-nord-14-d12);
     --gs-color-info: var(--gs-nord-9-d14);
     --gs-color-info-hover: var(--gs-nord-9-d20);
     --gs-color-on-info: white;
     --gs-color-info-fg: var(--gs-nord-9-d20);
+    --gs-color-info-fg-strong: var(--gs-nord-9-d20);
     --gs-color-info-subtle: rgb(129 161 193 / 0.16);
     --gs-color-info-border: rgb(129 161 193 / 0.5);
     --gs-titlebar-bg: var(--gs-nord-6);

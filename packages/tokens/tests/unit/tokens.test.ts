@@ -14,6 +14,7 @@ import {
   type ColorValue,
   CURSOR_KEYS,
   CURSORS,
+  colorToHex,
   contrastRatio,
   cursorCss,
   cursorDataUri,
@@ -25,12 +26,14 @@ import {
   opticalTracking,
   PRIMITIVE_HEX,
   REDUCED_MOTION_DURATION,
+  relativeLuminance,
   resolveHex,
   SEMANTIC_COLOR_KEYS,
   SHADOW_KEYS,
   shiftLightness,
   THEMES,
   type ThemeDefinition,
+  themeValue,
 } from '../../src/index';
 
 const SRC = join(import.meta.dir, '../../src');
@@ -222,6 +225,72 @@ describe('themes', () => {
   test('body text is comfortably readable', () => {
     const dark = THEMES['polar-night'];
     expect(contrastRatio(resolveHex(dark, 'fg'), resolveHex(dark, 'canvas'))).toBeGreaterThan(7);
+  });
+});
+
+describe('pressed states and tinted text', () => {
+  const SURFACES = ['canvas', 'surface-sidebar', 'surface-raised', 'surface-popover'] as const;
+  const TONES = ['accent', 'success', 'danger', 'info'] as const;
+
+  test('danger_pressed_is_a_step_beyond_hover_and_keeps_white_text_readable', () => {
+    for (const theme of themeList) {
+      const hover = resolveHex(theme, 'danger-hover');
+      const active = resolveHex(theme, 'danger-active');
+      expect(relativeLuminance(active), `${theme.id} pressed is darker than hover`).toBeLessThan(
+        relativeLuminance(hover) - 0.01,
+      );
+      for (const bg of ['danger', 'danger-hover', 'danger-active'] as const) {
+        const ratio = contrastRatio(resolveHex(theme, 'on-danger'), resolveHex(theme, bg));
+        expect(ratio, `${theme.id}: on-danger/${bg}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  test('strong_tone_text_reaches_aa_on_its_tint_over_every_surface', () => {
+    for (const theme of themeList) {
+      for (const tone of TONES) {
+        for (const surface of SURFACES) {
+          const base = resolveHex(theme, surface);
+          const tint = colorToHex(themeValue(theme, `${tone}-subtle`), base);
+          const text = resolveHex(theme, `${tone}-fg-strong`);
+          expect(
+            contrastRatio(text, tint),
+            `${theme.id}: ${tone}-fg-strong on ${tone}-subtle over ${surface}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  test('neutral_and_warning_badge_text_reaches_aa_on_every_surface', () => {
+    for (const theme of themeList) {
+      for (const surface of SURFACES) {
+        const base = resolveHex(theme, surface);
+        const neutral = colorToHex(themeValue(theme, 'fill-pressed'), base);
+        const warning = colorToHex(themeValue(theme, 'warning-subtle'), base);
+        expect(
+          contrastRatio(resolveHex(theme, 'fg'), neutral),
+          `${theme.id}/${surface}`,
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          contrastRatio(resolveHex(theme, 'warning-fg'), warning),
+          `${theme.id}/${surface}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  test('muted_text_reaches_aa_on_control_fills_over_every_surface', () => {
+    for (const theme of themeList) {
+      for (const surface of SURFACES) {
+        const base = resolveHex(theme, surface);
+        const control = colorToHex(themeValue(theme, 'control'), base);
+        expect(
+          contrastRatio(resolveHex(theme, 'fg-secondary'), control),
+          `${theme.id}: fg-secondary on control over ${surface}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 });
 
