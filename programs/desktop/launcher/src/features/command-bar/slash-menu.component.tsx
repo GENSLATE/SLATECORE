@@ -22,6 +22,12 @@ const ACTION_ICON: Readonly<Record<string, CodiconRef>> = {
   quit: 'codicon:close',
 };
 
+/**
+ * Muted text and icons of a suggestion. The selected row is a Frost wash, where muted text falls
+ * under 4.5:1 in Polar Night, so it steps up to the strong text colour there.
+ */
+const ACTIVE_ROW_TEXT = 'text-fg-muted group-data-active:text-fg-strong';
+
 const EFFECT_ICON: Record<Effect, CodiconRef> = {
   ui: 'codicon:layout',
   window: 'codicon:window',
@@ -116,10 +122,10 @@ function SuggestionContent({ suggestion }: { suggestion: SlashSuggestion }) {
         <Icon
           name={ACTION_ICON[action.id] ?? EFFECT_ICON[action.effect]}
           size={14}
-          className="shrink-0 text-fg-muted"
+          className={cn('shrink-0', ACTIVE_ROW_TEXT)}
         />
         <span className="shrink-0 font-medium font-mono text-fg-strong text-sm">/{action.id}</span>
-        <span className="ml-auto min-w-0 truncate pl-2 text-fg-muted text-xs">
+        <span className={cn('ml-auto min-w-0 truncate pl-2 text-xs', ACTIVE_ROW_TEXT)}>
           {action.description}
         </span>
       </>
@@ -128,7 +134,7 @@ function SuggestionContent({ suggestion }: { suggestion: SlashSuggestion }) {
   return (
     <>
       {suggestion.app === undefined ? (
-        <Icon name="codicon:arrow-right" size={14} className="shrink-0 text-fg-muted" />
+        <Icon name="codicon:arrow-right" size={14} className={cn('shrink-0', ACTIVE_ROW_TEXT)} />
       ) : (
         <AppIcon app={suggestion.app} className="size-5" />
       )}
@@ -136,7 +142,7 @@ function SuggestionContent({ suggestion }: { suggestion: SlashSuggestion }) {
         {suggestion.label}
       </span>
       {suggestion.detail === undefined ? null : (
-        <span className="ml-auto min-w-0 truncate pl-2 text-fg-muted text-xs">
+        <span className={cn('ml-auto min-w-0 truncate pl-2 text-xs', ACTIVE_ROW_TEXT)}>
           {suggestion.detail}
         </span>
       )}
@@ -145,7 +151,7 @@ function SuggestionContent({ suggestion }: { suggestion: SlashSuggestion }) {
         variant="inline"
         size="sm"
         className={cn(
-          'shrink-0 opacity-0 group-data-active:opacity-100',
+          'shrink-0 opacity-0 group-data-active:text-fg-strong group-data-active:opacity-100',
           // The detail already takes the free space; without one the key pushes right itself.
           suggestion.detail === undefined ? 'ml-auto' : 'ml-2',
         )}

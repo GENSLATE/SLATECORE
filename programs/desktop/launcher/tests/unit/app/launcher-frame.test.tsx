@@ -195,6 +195,21 @@ describe('launcher frame', () => {
     expect(screen.getByRole('combobox', { name: /Search apps/ }).className).toMatch(/\bh-full\b/);
   });
 
+  test('the_selected_slash_row_lifts_its_muted_text_so_it_stays_readable_on_the_selection', async () => {
+    const { user } = await renderLauncher();
+    await user.type(screen.getByRole('combobox', { name: /Search apps/ }), '/theme ');
+    const row = screen
+      .getAllByRole('option')
+      .find((option) => option.getAttribute('aria-selected') === 'true');
+    if (row === undefined) throw new Error('no selected suggestion');
+    expect(row).toHaveAttribute('data-active');
+    // Muted text is under 4.5:1 on the Polar Night selection; the selected row uses the strong one.
+    const muted = row.querySelectorAll('[class*="text-fg-muted"]');
+    expect(muted.length).toBeGreaterThan(0);
+    for (const part of muted) expect(part.className).toMatch(/group-data-active:text-fg-strong/);
+    expect(within(row).getByText('Enter').className).toMatch(/group-data-active:text-fg-strong/);
+  });
+
   test('run_mode_badge_sits_in_the_titlebar_not_the_status_bar', async () => {
     await renderLauncher();
     const titleBar = document.querySelector('[data-slot="launcher-titlebar"]');

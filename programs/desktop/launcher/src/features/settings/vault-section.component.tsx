@@ -597,7 +597,7 @@ function UnlockedVault({ status }: { status: VaultStatusDto }) {
               title={`Can't open ${nameOf(refused)}`}
               onDismiss={() => setRefused(undefined)}
             >
-              {BLOCKED_TYPE_MESSAGE}
+              <span className="text-fg">{BLOCKED_TYPE_MESSAGE}</span>
             </Banner>
           </div>
         )}

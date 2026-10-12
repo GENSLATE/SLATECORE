@@ -144,7 +144,7 @@ function ProfileCard({
           'focus-ring transition-colors duration-fast ease-standard hover:bg-fill-hover active:bg-fill-pressed',
         )}
       >
-        <span className="grid size-8 shrink-0 place-items-center rounded-full border border-accent-border bg-accent-subtle font-semibold text-accent-fg text-sm transition-transform duration-base ease-emphasized group-hover/profile:scale-105">
+        <span className="grid size-8 shrink-0 place-items-center rounded-full border border-accent-border bg-accent-subtle font-semibold text-accent-fg-strong text-sm transition-transform duration-base ease-emphasized group-hover/profile:scale-105">
           {profile.charAt(0).toUpperCase()}
         </span>
         <span className="flex min-w-0 flex-col items-start">

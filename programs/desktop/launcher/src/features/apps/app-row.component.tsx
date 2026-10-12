@@ -93,7 +93,7 @@ export function AppRow({
             {app.name}
           </span>
           {showSource ? (
-            <span className="shrink-0 rounded-sm bg-fill-hover px-1 text-2xs text-fg-muted">
+            <span className="shrink-0 rounded-sm bg-fill-hover px-1 text-2xs text-fg-secondary">
               {SOURCE_LABEL[source]}
             </span>
           ) : null}
