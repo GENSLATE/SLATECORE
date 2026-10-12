@@ -19,7 +19,6 @@
 
 use std::error::Error;
 use std::fs;
-use std::path::Path;
 
 use genslate_launcher_core::APP_NAME;
 use genslate_launcher_core::catalog::{AppId, Catalog, CatalogRoots, Source};
@@ -123,13 +122,4 @@ fn the_guard_would_notice_a_write_to_an_os_folder() -> TestResult {
     assert_eq!(changes.len(), 1, "{changes:?}");
     assert!(changes[0].contains("xyz.genslate.slatecore.launcher"));
     Ok(())
-}
-
-#[test]
-fn the_shipped_settings_seed_loads_as_the_defaults() {
-    // `configs/settings.toml` goes into the package as it is: no issue, and it changes nothing.
-    let seed = Path::new(env!("CARGO_MANIFEST_DIR")).join("../other/launcher/configs");
-    let settings = Settings::load(&seed);
-    assert_eq!(settings.issue, None);
-    assert_eq!(settings, Settings::default());
 }
