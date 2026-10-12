@@ -6,7 +6,7 @@ export const bannerVariants = tv({
     icon: 'mt-px shrink-0',
     body: 'flex min-w-0 flex-1 flex-col gap-0.5 py-px',
     title: 'font-semibold text-fg-strong',
-    description: 'text-fg-secondary',
+    description: 'text-fg',
     actions: 'flex shrink-0 items-center gap-1.5 self-center',
     dismiss: '-my-1 -mr-1 shrink-0',
   },
