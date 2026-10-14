@@ -667,6 +667,16 @@ describe('.claude/project (screenshots reused for READMEs and websites)', () => 
 describe('hook scripts', () => {
   const HOOKS = join(ROOT, '.claude', 'hooks');
 
+  // No user or system git config, and a scratch repo trusted whoever owns it: elevated Windows
+  // runners create temp folders owned by Administrators, which git otherwise refuses to read.
+  const ISOLATED_GIT = {
+    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'safe.directory',
+    GIT_CONFIG_VALUE_0: '*',
+  } as const;
+
   function runHook(
     script: string,
     stdin: string,
@@ -816,7 +826,7 @@ describe('hook scripts', () => {
     const git = (...args: string[]): string => {
       const result = Bun.spawnSync(['git', ...args], {
         cwd: repo,
-        env: { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' },
+        env: { ...process.env, ...ISOLATED_GIT },
         stdout: 'pipe',
         stderr: 'pipe',
       });
@@ -840,7 +850,7 @@ describe('hook scripts', () => {
     const result = runHook(
       'session-start.hook.ts',
       '{"hook_event_name":"SessionStart","source":"startup"}',
-      { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' },
+      { ...ISOLATED_GIT },
       repo,
     );
     expect(result.code).toBe(0);
@@ -856,7 +866,7 @@ describe('hook scripts', () => {
   test('session_start_leaves_a_human_identity_alone', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'slatecore-session-'));
     scratch.push(repo);
-    const env = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' };
+    const env = { ...ISOLATED_GIT };
     const git = (...args: string[]): string =>
       Bun.spawnSync(['git', ...args], {
         cwd: repo,
