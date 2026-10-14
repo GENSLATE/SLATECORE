@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,6 +19,10 @@ const COPIED = [
   '.cursor',
   '.agents',
 ] as const;
+
+// Each fixture copies the agent folders and the Windows CI runner is slow at that; the default
+// 5 s is enough on a developer machine but not for the tests that build several fixtures.
+setDefaultTimeout(30_000);
 
 const scratch: string[] = [];
 
