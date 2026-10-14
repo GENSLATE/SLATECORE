@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
-import { devNull, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 
 import { outsideProject, toRelative } from '../../.claude/hooks/hook.shared';
@@ -667,15 +667,36 @@ describe('.claude/project (screenshots reused for READMEs and websites)', () => 
 describe('hook scripts', () => {
   const HOOKS = join(ROOT, '.claude', 'hooks');
 
-  // No user or system git config, and a scratch repo trusted whoever owns it: elevated Windows
-  // runners create temp folders owned by Administrators, which git otherwise refuses to read.
+  // No user or system git config (an empty file, because git on Windows cannot read `\\.\nul` as
+  // one), and a scratch repo trusted whoever owns it: elevated Windows runners create temp folders
+  // owned by Administrators, which git otherwise refuses to read.
+  const emptyGitConfigDir = mkdtempSync(join(tmpdir(), 'slatecore-gitconfig-'));
+  scratch.push(emptyGitConfigDir);
+  const emptyGitConfig = join(emptyGitConfigDir, 'empty.gitconfig');
+  writeFileSync(emptyGitConfig, '');
   const ISOLATED_GIT = {
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: emptyGitConfig,
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'safe.directory',
     GIT_CONFIG_VALUE_0: '*',
   } as const;
+
+  /** Runs git in a scratch repo with no outside config; a failure throws with git's own message. */
+  const scratchGit =
+    (repo: string) =>
+    (...args: string[]): string => {
+      const result = Bun.spawnSync(['git', ...args], {
+        cwd: repo,
+        env: { ...process.env, ...ISOLATED_GIT },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      if (result.exitCode !== 0) {
+        throw new Error(`git ${args.join(' ')} failed: ${result.stderr.toString().trim()}`);
+      }
+      return result.stdout.toString().trim();
+    };
 
   function runHook(
     script: string,
@@ -823,15 +844,7 @@ describe('hook scripts', () => {
   test('session_start_prints_context_and_replaces_an_agent_git_identity', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'slatecore-session-'));
     scratch.push(repo);
-    const git = (...args: string[]): string => {
-      const result = Bun.spawnSync(['git', ...args], {
-        cwd: repo,
-        env: { ...process.env, ...ISOLATED_GIT },
-        stdout: 'pipe',
-        stderr: 'pipe',
-      });
-      return result.stdout.toString().trim();
-    };
+    const git = scratchGit(repo);
     git('init', '-q', '-b', 'main');
     git(
       '-c',
@@ -867,14 +880,7 @@ describe('hook scripts', () => {
     const repo = await mkdtemp(join(tmpdir(), 'slatecore-session-'));
     scratch.push(repo);
     const env = { ...ISOLATED_GIT };
-    const git = (...args: string[]): string =>
-      Bun.spawnSync(['git', ...args], {
-        cwd: repo,
-        env: { ...process.env, ...env },
-        stdout: 'pipe',
-      })
-        .stdout.toString()
-        .trim();
+    const git = scratchGit(repo);
     git('init', '-q', '-b', 'main');
     git('config', 'user.name', 'Sam Owner');
     git('config', 'user.email', 'sam@example.com');
