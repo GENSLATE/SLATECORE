@@ -36,3 +36,7 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+# The crate is imported as `ini`, which machete does not map back to `rust-ini`.
+ignored = ["rust-ini"]
