@@ -1,0 +1,59 @@
+import type { CodiconRef } from '@genslate/design-system';
+import { cn, Icon } from '@genslate/design-system';
+
+import type { AppGroup } from './catalog.model';
+
+const GROUP_ICON: Record<AppGroup['kind'], CodiconRef> = {
+  favorites: 'codicon:star-full',
+  recent: 'codicon:history',
+  category: 'codicon:layers',
+  unavailable: 'codicon:circle-slash',
+};
+
+export interface AppGroupHeaderProps {
+  readonly group: AppGroup;
+  /** Id of the label text, which names the group's listbox. */
+  readonly labelId: string;
+  /** Id of the group's listbox while it is shown. */
+  readonly controls: string | undefined;
+  readonly collapsed: boolean;
+  readonly onToggle: () => void;
+}
+
+/** Sticky, collapsible section header above a group's listbox. */
+export function AppGroupHeader({
+  group,
+  labelId,
+  controls,
+  collapsed,
+  onToggle,
+}: AppGroupHeaderProps) {
+  return (
+    <button
+      type="button"
+      data-slot="app-group-header"
+      aria-expanded={!collapsed}
+      aria-controls={controls}
+      onClick={onToggle}
+      className={cn(
+        'sticky top-0 z-raised flex h-7 w-full cursor-interactive items-center gap-1.5 rounded-md bg-surface px-2',
+        'font-semibold text-2xs text-fg-muted uppercase tracking-wider',
+        'focus-ring-inset transition-colors duration-fast ease-standard hover:text-fg-secondary',
+      )}
+    >
+      <Icon
+        name="codicon:chevron-down"
+        size={12}
+        className={cn(
+          'transition-transform duration-base ease-emphasized',
+          collapsed && '-rotate-90',
+        )}
+      />
+      {group.kind === 'category' ? null : <Icon name={GROUP_ICON[group.kind]} size={12} />}
+      <span id={labelId} className="flex-1 truncate text-left">
+        {group.label}
+      </span>
+      <span className="font-medium tabular-nums">{group.apps.length}</span>
+    </button>
+  );
+}

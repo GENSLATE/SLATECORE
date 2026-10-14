@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" data-theme="polar-night">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>SLATECORE Design Kit</title>
+    <!-- Inline icon (three flat Nord Frost slates) so the browser never asks for /favicon.ico. -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 17l12 7-12 7-12-7z' fill='%235e81ac'/%3E%3Cpath d='M16 10l12 7-12 7-12-7z' fill='%2381a1c1'/%3E%3Cpath d='M16 3l12 7-12 7-12-7z' fill='%2388c0d0'/%3E%3C/svg%3E"
+    />
+    <script>
+      // Theme the page before first paint (mirrors `applyInitialTheme` from the design system).
+      (() => {
+        let theme = 'polar-night';
+        try {
+          const stored = localStorage.getItem('genslate.theme');
+          if (stored === 'polar-night' || stored === 'snow-storm') theme = stored;
+          else if (matchMedia('(prefers-color-scheme: light)').matches) theme = 'snow-storm';
+        } catch {
+          // Storage can be blocked: the dark default stands.
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+    <style>
+      /* Canvas colours until the design-system stylesheet arrives (Nord0 / Snow Storm canvas).
+         These two hex values are exempt from the tokens-only rule: they paint before first paint,
+         when no token stylesheet exists yet. */
+      html[data-theme='polar-night'] { background: #2e3440; }
+      html[data-theme='snow-storm'] { background: #f4f7fc; }
+      body { margin: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

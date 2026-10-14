@@ -1,0 +1,12 @@
+---
+description: Portable and leave-no-trace rules for paths, startup and packaging
+globs:
+  - "crates/paths/**"
+  - "crates/launcher-core/**"
+  - "programs/desktop/*/src-tauri/**"
+alwaysApply: false
+---
+Follow `.claude/rules/portability-no-trace.md` (read it first).
+@.claude/rules/portability-no-trace.md
+Hard rules: every path from `crates/paths`, nothing written outside installDir (no registry,
+AppData or real TEMP), no absolute path persisted, no autostart. The portability test is a gate.

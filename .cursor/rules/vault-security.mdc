@@ -1,0 +1,12 @@
+---
+description: Vault cryptography and handling rules
+globs:
+  - "crates/vault/**"
+  - "**/storage/vault/**"
+  - "programs/desktop/*/src-tauri/src/**/vault*"
+alwaysApply: false
+---
+Follow `.claude/rules/vault-security.md` (read it first).
+@.claude/rules/vault-security.md
+Hard rules: keys and passwords in memory only, zeroised, never logged; IPC takes ids not paths;
+never read real vault data; ask for a security review of any change here.

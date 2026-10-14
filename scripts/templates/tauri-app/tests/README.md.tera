@@ -1,0 +1,6 @@
+# {{ title }} tests
+
+- `tests/unit/**/*.test.tsx`: bun test + Testing Library + happy-dom.
+- `tests/setup/dom.preload.ts` registers happy-dom; the package `test` script passes `--preload`.
+
+Run with `bun run test` in this folder, or `bun x turbo run test --filter=@genslate/{{ name }}`.

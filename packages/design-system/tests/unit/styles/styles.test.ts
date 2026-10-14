@@ -1,0 +1,474 @@
+import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { basename, join, relative } from 'node:path';
+import { buttonVariants } from '../../../src/components/actions/button/button.variants';
+import { iconButtonVariants } from '../../../src/components/actions/icon-button/icon-button.variants';
+import { toggleButtonVariants } from '../../../src/components/actions/toggle-button/toggle-button.variants';
+import { checkboxBoxVariants } from '../../../src/components/inputs/checkbox/checkbox.variants';
+import { passwordFieldToggleVariants } from '../../../src/components/inputs/password-field/password-field.variants';
+import { radioVariants } from '../../../src/components/inputs/radio-group/radio-group.variants';
+import { sliderVariants } from '../../../src/components/inputs/slider/slider.variants';
+import { switchTrackVariants } from '../../../src/components/inputs/switch/switch.variants';
+import { textFieldClearVariants } from '../../../src/components/inputs/text-field/text-field.variants';
+import { breadcrumbsVariants } from '../../../src/components/navigation/breadcrumbs/breadcrumbs.variants';
+import { popoverVariants } from '../../../src/components/overlays/popover/popover.variants';
+import { toastVariants } from '../../../src/components/overlays/toast/toast.variants';
+import { trafficLightsVariants } from '../../../src/components/window/traffic-lights/traffic-lights.variants';
+import {
+  buildCss,
+  deadCandidates,
+  listFiles,
+  srcRoot,
+  stylesRoot,
+} from '../../support/tailwind.harness';
+
+const rel = (file: string) => relative(srcRoot, file).replaceAll('\\', '/');
+
+const styleSheets = listFiles(stylesRoot).filter((file) => file.endsWith('.css'));
+const variantFiles = listFiles(join(srcRoot, 'components')).filter((file) =>
+  file.endsWith('.variants.ts'),
+);
+const recipeFiles = listFiles(join(srcRoot, 'recipes')).filter((file) =>
+  file.endsWith('.recipe.ts'),
+);
+/** Every file that carries styling: the CSS layer, component variants and shared recipes. */
+const styleSources = [...styleSheets, ...variantFiles, ...recipeFiles];
+
+/** Collects every class token a tailwind-variants component can emit. */
+function collectClasses(value: unknown, into: Set<string>): void {
+  if (typeof value === 'string') {
+    for (const token of value.split(/\s+/)) if (token !== '') into.add(token);
+  } else if (Array.isArray(value)) {
+    for (const item of value) collectClasses(item, into);
+  } else if (value != null && typeof value === 'object') {
+    for (const item of Object.values(value)) collectClasses(item, into);
+  }
+}
+
+interface TvLike {
+  base?: unknown;
+  slots?: unknown;
+  variants?: unknown;
+  compoundVariants?: { class?: unknown; className?: unknown }[];
+  compoundSlots?: { class?: unknown; className?: unknown }[];
+}
+
+async function classesOf(file: string): Promise<Set<string>> {
+  const classes = new Set<string>();
+  const mod = (await import(file)) as Record<string, unknown>;
+  for (const exported of Object.values(mod)) {
+    if (typeof exported !== 'function') continue;
+    const component = exported as unknown as TvLike;
+    collectClasses(component.base, classes);
+    collectClasses(component.slots, classes);
+    collectClasses(component.variants, classes);
+    for (const compound of [
+      ...(component.compoundVariants ?? []),
+      ...(component.compoundSlots ?? []),
+    ]) {
+      collectClasses(compound.class, classes);
+      collectClasses(compound.className, classes);
+    }
+  }
+  return classes;
+}
+
+/** Class lists per styled element: one group per tv base / slot / variant value / compound. */
+function collectGroups(value: unknown, into: string[][]): void {
+  if (typeof value === 'string') {
+    into.push(value.split(/\s+/).filter(Boolean));
+  } else if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
+    into.push(value.flatMap((item: string) => item.split(/\s+/)).filter(Boolean));
+  } else if (Array.isArray(value)) {
+    for (const item of value) collectGroups(item, into);
+  } else if (value != null && typeof value === 'object') {
+    for (const item of Object.values(value)) collectGroups(item, into);
+  }
+}
+
+async function classGroupsOf(file: string): Promise<string[][]> {
+  const groups: string[][] = [];
+  const mod = (await import(file)) as Record<string, unknown>;
+  for (const exported of Object.values(mod)) {
+    if (typeof exported !== 'function') continue;
+    const component = exported as unknown as TvLike;
+    collectGroups(component.base, groups);
+    collectGroups(component.slots, groups);
+    collectGroups(component.variants, groups);
+    for (const compound of component.compoundVariants ?? []) {
+      collectGroups(compound.class ?? compound.className, groups);
+    }
+  }
+  return groups;
+}
+
+/** The utility part of a class: variants (`hover:`, `data-[x=y]:`) and `!` stripped. */
+function utilityOf(candidate: string): string {
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < candidate.length; index += 1) {
+    const char = candidate[index];
+    if (char === '[' || char === '(') depth += 1;
+    else if (char === ']' || char === ')') depth -= 1;
+    else if (char === ':' && depth === 0) start = index + 1;
+  }
+  return candidate.slice(start).replace(/^!|!$/g, '');
+}
+
+/** Returns the `{ … }` body that starts at `open` (the index of an opening brace). */
+function blockAt(css: string, open: number): string {
+  let depth = 0;
+  for (let index = open; index < css.length; index += 1) {
+    if (css[index] === '{') depth += 1;
+    else if (css[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return css.slice(open + 1, index);
+    }
+  }
+  return css.slice(open + 1);
+}
+
+function blocksMatching(css: string, header: RegExp): string[] {
+  const blocks: string[] = [];
+  const pattern = new RegExp(header.source, 'g');
+  for (let match = pattern.exec(css); match != null; match = pattern.exec(css)) {
+    blocks.push(blockAt(css, css.indexOf('{', match.index)));
+  }
+  return blocks;
+}
+
+describe('flat Nord style rules', () => {
+  test('no_gradients_bevels_or_inset_shadows_in_styles', () => {
+    const forbidden: [string, RegExp][] = [
+      ['gradient', /gradient/i],
+      ['bevel', /bevel/i],
+      ['inset shadow', /shadow-inset|inset-shadow|shadow-\[inset|box-shadow:[^;{}]*\binset\b/],
+      ['inset ring', /inset-ring/],
+      ['focus halo', /focus-halo/],
+    ];
+    const offenders: string[] = [];
+    for (const file of styleSources) {
+      const text = readFileSync(file, 'utf8');
+      for (const [label, pattern] of forbidden) {
+        if (pattern.test(text)) offenders.push(`${rel(file)}: ${label}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('only_floating_surfaces_use_the_popover_shadow', async () => {
+    // Menus, popovers, selects (popup-surface), dialogs, toasts and tooltips float; nothing else.
+    const floating = new Set([
+      'popup-surface.recipe.ts',
+      'dialog.variants.ts',
+      'toast.variants.ts',
+      'tooltip.variants.ts',
+    ]);
+    const offenders: string[] = [];
+    for (const file of [...variantFiles, ...recipeFiles]) {
+      for (const candidate of await classesOf(file)) {
+        const utility = utilityOf(candidate);
+        const isShadow = /^-?(shadow|ring|inset-ring|drop-shadow)(-|$)/.test(utility);
+        if (!isShadow || utility === 'shadow-none') continue;
+        if (utility === 'shadow-popover' && floating.has(basename(file))) continue;
+        offenders.push(`${rel(file)}: ${candidate}`);
+      }
+    }
+    for (const file of styleSheets) {
+      const text = readFileSync(file, 'utf8');
+      if (/box-shadow|backdrop-filter/.test(text)) offenders.push(`${rel(file)}: box-shadow`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('no_translucent_glass_or_blur_surfaces', () => {
+    const offenders = styleSources.filter((file) =>
+      /surface-glass|backdrop-blur|backdrop-filter|backdrop-saturate/.test(
+        readFileSync(file, 'utf8'),
+      ),
+    );
+    expect(offenders.map(rel)).toEqual([]);
+  });
+
+  test('no_glass_option_in_the_component_api', () => {
+    // Floating surfaces are always solid: no `glass` prop, variant or doc anywhere in the source.
+    const offenders = listFiles(srcRoot).filter(
+      (file) => /\.(ts|tsx)$/.test(file) && /\bglass\b/i.test(readFileSync(file, 'utf8')),
+    );
+    expect(offenders.map(rel)).toEqual([]);
+  });
+
+  test('no_raw_hex_or_dark_variant_outside_tokens', () => {
+    const offenders: string[] = [];
+    for (const file of listFiles(srcRoot)) {
+      if (!/\.(ts|tsx|css)$/.test(file) || file.endsWith('.generated.ts')) continue;
+      const text = readFileSync(file, 'utf8');
+      if (/#[0-9a-fA-F]{3,8}\b/.test(text)) offenders.push(`${rel(file)}: raw hex`);
+      if (/\b(rgba?|hsla?|oklch|oklab|lab|lch)\(/.test(text))
+        offenders.push(`${rel(file)}: raw colour`);
+      if (/(^|[\s'"`])dark:/m.test(text)) offenders.push(`${rel(file)}: dark: variant`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('every_variants_file_defines_focus_visible', () => {
+    // Display-only or container styles. Their focusable parts are other components (Button,
+    // IconButton, TextField) or list rows that show the list-item highlight instead of DOM focus.
+    const nonInteractive = new Set([
+      'toolbar.variants.ts',
+      'avatar.variants.ts',
+      'color-swatch.variants.ts',
+      'icon.variants.ts',
+      'kbd.variants.ts',
+      'badge.variants.ts',
+      'banner.variants.ts',
+      'empty-state.variants.ts',
+      'feature-teaser.variants.ts',
+      'progress-bar.variants.ts',
+      'skeleton.variants.ts',
+      'spinner.variants.ts',
+      'checkbox-group.variants.ts',
+      'field.variants.ts',
+      'search-field.variants.ts',
+      'textarea.variants.ts',
+      'panel.variants.ts',
+      'separator.variants.ts',
+      'alert-dialog.variants.ts',
+      'command-palette.variants.ts',
+      'context-menu.variants.ts',
+      'menu.variants.ts',
+      'tooltip.variants.ts',
+      'window-context-menu.variants.ts',
+    ]);
+    const names = variantFiles.map((file) => basename(file));
+    expect([...nonInteractive].filter((name) => !names.includes(name))).toEqual([]);
+
+    const focusable = [...variantFiles, join(srcRoot, 'recipes', 'field.recipe.ts')].filter(
+      (file) => !nonInteractive.has(basename(file)),
+    );
+    const missing = focusable.filter(
+      (file) => !/focus-ring|focus-visible/.test(readFileSync(file, 'utf8')),
+    );
+    expect(missing.map(rel)).toEqual([]);
+  });
+
+  test('focus_rings_are_crisp_frost_outlines', () => {
+    const utilities = readFileSync(join(stylesRoot, 'design-system.utilities.css'), 'utf8');
+    for (const name of ['focus-ring', 'focus-ring-inset', 'focus-ring-within']) {
+      const [body] = blocksMatching(utilities, new RegExp(`@utility ${name}\\s*\\{`));
+      expect(body, name).toBeDefined();
+      expect(body, name).toContain('var(--gs-color-focus)');
+      expect(body, name).toContain('focus-visible');
+      expect(body, name).not.toContain('box-shadow');
+    }
+  });
+});
+
+describe('pixel-exact layout', () => {
+  test('fixed_height_bars_never_spend_height_on_a_border', async () => {
+    // A fixed token height (h-titlebar, h-8, …) plus a top/bottom border would push centred
+    // children onto half pixels. Such bars draw their separator with a hairline-* utility.
+    const fixedHeight = /^h-(?!full$|auto$|fit$|px$|screen$|dvh$|min$|max$|0$)[\w.()-]+$/;
+    const verticalBorder = /^border-(t|b|y)(-\d+)?$/;
+    const offenders: string[] = [];
+    for (const file of [...variantFiles, ...recipeFiles]) {
+      for (const group of await classGroupsOf(file)) {
+        const utilities = group.map(utilityOf);
+        if (!utilities.some((u) => fixedHeight.test(u))) continue;
+        const borders = group.filter((c) => verticalBorder.test(utilityOf(c)));
+        if (borders.length > 0) offenders.push(`${rel(file)}: ${borders.join(' ')}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+
+    const bars: [string, string][] = [
+      ['window/title-bar/title-bar.variants.ts', 'hairline-b'],
+      ['window/status-bar/status-bar.variants.ts', 'hairline-t'],
+      ['navigation/tabs/tabs.variants.ts', 'hairline-b'],
+      ['actions/toolbar/toolbar.variants.ts', 'hairline-b'],
+      ['overlays/command-palette/command-palette.variants.ts', 'hairline-b'],
+    ];
+    for (const [file, hairline] of bars) {
+      const text = readFileSync(join(srcRoot, 'components', file), 'utf8');
+      expect(text, file).toContain(hairline);
+    }
+  });
+
+  test('hairlines_take_no_layout_space', async () => {
+    const names = ['hairline-t', 'hairline-b', 'hairline-l', 'hairline-r'];
+    const css = await buildCss([...names, 'hairline-color-titlebar-border']);
+    for (const name of names) {
+      const rule = blocksMatching(css, new RegExp(`\\.${name}\\s*\\{`)).join('\n');
+      expect(rule, name).toContain('&::after');
+      expect(rule, name).toContain('position: absolute');
+      expect(rule, name).toMatch(/(width|height): 1px/);
+      expect(rule, name).not.toMatch(/border(-(top|bottom|left|right))?(-width)?:/);
+      expect(rule, name).not.toContain('box-shadow');
+    }
+    const color = blocksMatching(css, /\.hairline-color-titlebar-border\s*\{/).join('\n');
+    expect(color).toContain('--gs-hairline-color: var(--gs-titlebar-border)');
+  });
+
+  test('bordered_auto_width_controls_keep_their_padded_size', async () => {
+    // These gained a 1px border in the flat restyle: their padding gives the pixel back, so
+    // the outer size stays on the spacing grid (e.g. md button: 1px border + 11px = 12px).
+    // [file, export, slot] — the element that carries the border.
+    const targets: [string, string, string | null][] = [
+      ['actions/button/button.variants.ts', 'buttonVariants', 'root'],
+      ['actions/toggle-button/toggle-button.variants.ts', 'toggleButtonVariants', null],
+      ['feedback/badge/badge.variants.ts', 'badgeVariants', 'root'],
+      ['display/kbd/kbd.variants.ts', 'kbdVariants', 'key'],
+      ['layout/card/card.variants.ts', 'cardVariants', 'root'],
+      ['overlays/dialog/dialog.variants.ts', 'dialogButtonVariants', null],
+    ];
+    const pick = (value: unknown, slot: string | null): unknown =>
+      slot == null || typeof value === 'string' || Array.isArray(value)
+        ? value
+        : (value as Record<string, unknown> | undefined)?.[slot];
+    const plainPadding = /^p[xy]?-[\d.]+$/;
+    const offenders: string[] = [];
+    for (const [file, name, slot] of targets) {
+      const mod = (await import(join(srcRoot, 'components', file))) as Record<string, TvLike>;
+      const component = mod[name];
+      expect(component, file).toBeDefined();
+      const set = new Set<string>();
+      collectClasses(slot == null ? component?.base : pick(component?.slots, slot), set);
+      for (const variant of Object.values((component?.variants ?? {}) as Record<string, object>)) {
+        for (const value of Object.values(variant)) collectClasses(pick(value, slot), set);
+      }
+      for (const compound of component?.compoundVariants ?? []) {
+        collectClasses(pick(compound.class, slot), set);
+      }
+      const classes = [...set].map(utilityOf);
+      expect(classes, file).toContain('border');
+      expect(
+        classes.some((c) => /^p[xy]?-\[calc\(--spacing\([\d.]+\)-1px\)\]$/.test(c)),
+        file,
+      ).toBe(true);
+      for (const c of classes)
+        if (plainPadding.test(c) && c !== 'px-0') offenders.push(`${file}: ${c}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('motion layer', () => {
+  const motionUtilities = ['motion-fade-up', 'motion-row-in', 'motion-pop', 'motion-pulse-soft'];
+
+  test('reduced_motion_disables_animation_utilities', async () => {
+    const css = await buildCss(motionUtilities);
+    const reducedBlocks = blocksMatching(css, /@media \(prefers-reduced-motion: reduce\)\s*\{/);
+    for (const name of motionUtilities) {
+      const rules = blocksMatching(css, new RegExp(`\\.${name}\\s*\\{`));
+      expect(rules.length, name).toBeGreaterThan(0);
+      const rule = rules.join('\n');
+      // It animates with the shared duration and easing tokens...
+      const keyframes = /: (gs-[a-z-]+) /.exec(rule)?.[1];
+      expect(keyframes, name).toBeDefined();
+      expect(css, name).toContain(`@keyframes ${keyframes} {`);
+      expect(rule, name).toMatch(/var\(--gs-(duration|ease)-/);
+      // ...and stops under reduced motion (nested in the rule or as a top-level media block).
+      const nested = blocksMatching(rule, /@media \(prefers-reduced-motion: reduce\)\s*\{/);
+      const topLevel = reducedBlocks.flatMap((block) =>
+        blocksMatching(block, new RegExp(`\\.${name}\\s*\\{`)),
+      );
+      const disabled = [...nested, ...topLevel].some((block) =>
+        block.replace(/\s+/g, ' ').includes('animation: none'),
+      );
+      expect(disabled, `${name} under reduced motion`).toBe(true);
+    }
+  });
+
+  test('pulse_soft_animates_a_ring_and_never_the_text', async () => {
+    // The "Coming soon" badge carries text: dipping its opacity would drop the label below AA.
+    const css = await buildCss(['motion-pulse-soft']);
+    const rule = blocksMatching(css, /\.motion-pulse-soft\s*\{/).join('\n');
+    const name = /: (gs-[a-z-]+) /.exec(rule)?.[1];
+    expect(name).toBeDefined();
+    const keyframes = blocksMatching(css, new RegExp(`@keyframes ${name} \\{`)).join('\n');
+    expect(keyframes).toContain('outline-color');
+    expect(keyframes).not.toMatch(/(^|[\s;{])(opacity|color)\s*:/);
+  });
+
+  test('row_in_staggers_by_the_stagger_index', async () => {
+    const css = await buildCss(['motion-row-in']);
+    const rule = blocksMatching(css, /\.motion-row-in\s*\{/).join('\n');
+    expect(rule).toMatch(/animation-delay:[^;]*var\(--stagger/);
+  });
+
+  test('every_variant_and_recipe_class_generates_css', async () => {
+    const candidates = new Set<string>();
+    for (const file of [...variantFiles, ...recipeFiles]) {
+      for (const candidate of await classesOf(file)) candidates.add(candidate);
+    }
+    // Group markers (`group/item`) only name a scope for `group-*` variants.
+    const utilities = [...candidates].filter((c) => !/^(group|peer)(\/[\w-]+)?$/.test(c));
+    expect(utilities.length).toBeGreaterThan(500);
+    expect(await deadCandidates(utilities)).toEqual([]);
+  });
+});
+
+describe('transitions', () => {
+  test('arbitrary_transition_values_name_a_token_easing_for_every_property', async () => {
+    // A bare `opacity var(--gs-duration-slow)` falls back to the browser's default `ease`.
+    const offenders: string[] = [];
+    for (const file of [...variantFiles, ...recipeFiles]) {
+      for (const candidate of await classesOf(file)) {
+        const value = /^\[transition:(.+)\]$/.exec(utilityOf(candidate))?.[1];
+        if (value === undefined) continue;
+        let depth = 0;
+        let start = 0;
+        const parts: string[] = [];
+        for (let index = 0; index <= value.length; index += 1) {
+          const char = value[index];
+          if (char === '(') depth += 1;
+          else if (char === ')') depth -= 1;
+          else if ((char === ',' && depth === 0) || index === value.length) {
+            parts.push(value.slice(start, index));
+            start = index + 1;
+          }
+        }
+        for (const part of parts) {
+          if (!part.includes('var(--gs-ease-')) offenders.push(`${rel(file)}: ${part}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('hit areas', () => {
+  test('hit_area_grows_the_target_to_24px_without_taking_layout_space', async () => {
+    const css = await buildCss(['hit-area']);
+    const rule = blocksMatching(css, /\.hit-area(::after)?\s*\{/).join('\n');
+    expect(css).toMatch(/\.hit-area(\s*\{[^}]*&)?::after/);
+    expect(rule).toContain('position: absolute');
+    expect(rule).toContain('max(100%, 1.5rem)');
+    expect(rule).not.toMatch(/(^|\s)(padding|margin)[^;]*:/);
+  });
+
+  test('controls_drawn_under_24px_carry_a_positioned_hit_area', () => {
+    const small: [string, string][] = [
+      ['button xs', buttonVariants({ size: 'xs' }).root()],
+      ['icon button xs', iconButtonVariants({ size: 'xs' })],
+      ['toggle button xs', toggleButtonVariants({ size: 'xs' })],
+      ['traffic light', trafficLightsVariants({ kind: 'close' }).light()],
+      ['checkbox', checkboxBoxVariants()],
+      ['radio', radioVariants()],
+      ['switch', switchTrackVariants()],
+      ['slider lane', sliderVariants().control()],
+      ['popover close', popoverVariants().close()],
+      ['toast close', toastVariants().close()],
+      ['text field clear', textFieldClearVariants()],
+      ['password reveal', passwordFieldToggleVariants()],
+      ['breadcrumb link', breadcrumbsVariants({ size: 'sm' }).link()],
+    ];
+    const offenders = small
+      .filter(([, classes]) => {
+        const list = classes.split(/\s+/);
+        return !list.includes('hit-area') || !list.some((c) => /^(relative|absolute)$/.test(c));
+      })
+      .map(([name]) => name);
+    expect(offenders).toEqual([]);
+  });
+});

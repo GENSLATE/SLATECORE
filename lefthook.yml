@@ -1,0 +1,55 @@
+# ──────────────────────────────────────────────────────────────────────
+#  SLATECORE: git hooks (lefthook 2)
+#  Installed by `bun run setup` (`bun x --no-install lefthook install`). Everything runs through
+#  bun. Skip once with `LEFTHOOK=0 git commit ...`; CI runs the same checks anyway.
+#  https://lefthook.dev/configuration/
+# ──────────────────────────────────────────────────────────────────────
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      glob: '*.{ts,tsx,js,mjs,cjs,json,jsonc,css}'
+      run: >-
+        bun x --no-install biome check --config-path=.config/biome.json --write
+        --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+
+    - name: rustfmt
+      glob: '*.rs'
+      run: rustfmt --edition 2024 {staged_files}
+      stage_fixed: true
+
+    # Generated token files must match the token source (packages/tokens/src).
+    - name: tokens
+      glob:
+        - 'packages/tokens/src/**/*.ts'
+        - 'packages/tokens/scripts/**/*.ts'
+        - 'crates/design-tokens/src/generated/**'
+      run: bun packages/tokens/scripts/build-tokens.ts --check
+
+    # Advisory here (--no-exit-code) so a new word never blocks a commit; `bun run check` and CI
+    # fail on it. Add legitimate words to .config/cspell/project-words.txt.
+    - name: spelling
+      glob: '*.{ts,tsx,rs,md,json,yml,yaml,toml,css}'
+      run: >-
+        bun x --no-install cspell --config .config/cspell.json --no-progress --no-summary
+        --no-must-find-files --no-exit-code {staged_files}
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: bun x --no-install --bun commitlint --config .config/commitlint.config.ts --edit {1}
+    # No agent author, committer, Co-Authored-By/session trailer or footer.
+    - name: authorship
+      run: bun run attribution --message {1}
+
+# Keep this fast: IDE Sync (VS Code, GitHub Desktop) only shows "failed to push some refs" when
+# a push hook fails, and a slow hook looks like a hang. Turbo caches the TypeScript gates; the
+# full suites (bun + cargo) run in CI and with `bun run test`; run that before a release.
+pre-push:
+  jobs:
+    - name: authorship
+      run: bun run attribution --range origin/main..HEAD --current-branch
+    - name: typecheck + lint
+      run: bun run check --ts

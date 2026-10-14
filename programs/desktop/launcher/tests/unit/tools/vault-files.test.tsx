@@ -1,0 +1,211 @@
+import { describe, expect, test } from 'bun:test';
+import { screen, waitFor, within } from '@testing-library/react';
+
+import type { VaultStatusDto } from '../../../src/ipc/launcher.types';
+import { renderLauncher } from '../launcher.harness';
+
+const search = () => screen.getByRole('combobox', { name: /Search apps/ });
+const settings = () => within(screen.getByRole('region', { name: 'Settings' }));
+const file = async (name: string) =>
+  settings().findByRole('button', { name: new RegExp(`^${name.replace('.', '\\.')}`) });
+
+const blockedLock = () => settings().getByRole('alert', { name: "Couldn't lock automatically" });
+const BLOCKED_COPY =
+  "That file type can run code, so it can't be opened from the vault. Export it to a folder instead.";
+
+describe('vault files', () => {
+  test('the first open in a session explains the traces it leaves, once', async () => {
+    const { backend, user } = await renderLauncher({ vault: 'unlocked' });
+    await user.type(search(), '/vault{Enter}');
+    await user.click(await file('ideas.md'));
+    // Nothing is decrypted until the note has been read.
+    expect(backend.vaultOpen).not.toHaveBeenCalled();
+    const note = settings().getByRole('status', { name: 'Opening leaves traces on this PC' });
+    expect(note).toHaveTextContent(/Windows Explorer/);
+    expect(note).toHaveTextContent(/Recent Items/);
+    expect(note).toHaveTextContent(/Export leaves nothing behind/);
+
+    await user.click(within(note).getByRole('button', { name: 'Open ideas.md' }));
+    expect(backend.vaultOpen).toHaveBeenCalledWith('ideas.md');
+    expect(
+      settings().queryByRole('status', { name: 'Opening leaves traces on this PC' }),
+    ).toBeNull();
+
+    // Later opens in the same session go straight through.
+    await user.click(await file('budget-2026.xlsx'));
+    expect(backend.vaultOpen).toHaveBeenLastCalledWith('budget-2026.xlsx');
+    expect(
+      settings().queryByRole('status', { name: 'Opening leaves traces on this PC' }),
+    ).toBeNull();
+  });
+
+  test('dismissing the note counts as read; Not now opens nothing', async () => {
+    const { backend, user } = await renderLauncher({ vault: 'unlocked' });
+    await user.type(search(), '/vault{Enter}');
+    await user.click(await file('ideas.md'));
+    const note = () => settings().getByRole('status', { name: 'Opening leaves traces on this PC' });
+    await user.click(within(note()).getByRole('button', { name: 'Not now' }));
+    expect(backend.vaultOpen).not.toHaveBeenCalled();
+
+    await user.click(await file('ideas.md'));
+    await user.click(within(note()).getByRole('button', { name: 'Dismiss' }));
+    expect(backend.vaultOpen).not.toHaveBeenCalled();
+    await user.click(await file('ideas.md'));
+    expect(backend.vaultOpen).toHaveBeenCalledWith('ideas.md');
+  });
+
+  test('a file type that can run code is refused with a clear message', async () => {
+    const { backend, user } = await renderLauncher({ vault: 'unlocked' });
+    await user.type(search(), '/vault{Enter}');
+    await user.click(await file('backup.ps1'));
+    // The shell decides; the code-bearing type never needs the traces note first.
+    expect(backend.vaultOpen).toHaveBeenCalledWith('backup.ps1');
+    const notice = await settings().findByRole('alert', { name: "Can't open backup.ps1" });
+    expect(notice).toHaveTextContent(BLOCKED_COPY);
+    expect(screen.queryByText(/Opened backup\.ps1/)).toBeNull();
+    await user.click(within(notice).getByRole('button', { name: 'Dismiss' }));
+    expect(settings().queryByRole('alert', { name: "Can't open backup.ps1" })).toBeNull();
+  });
+
+  test('a blocked automatic lock shows a lasting notice and keeps the vault unlocked', async () => {
+    const { backend, emit, user } = await renderLauncher({ vault: 'unlocked', lockBlocked: true });
+    await user.type(search(), '/vault{Enter}');
+    emit('vaultLockBlocked', {
+      reason: 'idle',
+      error: {
+        code: 'UNSYNCED_EDITS',
+        message: 'edits could not be saved',
+        paths: ['ideas.md', 'budget-2026.xlsx'],
+      },
+    });
+    const notice = await settings().findByRole('alert', { name: "Couldn't lock automatically" });
+    expect(notice).toHaveTextContent(
+      "Couldn't lock automatically: 2 edited files couldn't be saved. Close the program that has them open, then lock again.",
+    );
+    expect(settings().getByText('Unlocked')).toBeInTheDocument();
+
+    // Lock again: the edits still cannot be saved, so the vault stays unlocked.
+    await user.click(within(notice).getByRole('button', { name: 'Lock again' }));
+    expect(backend.vaultLock).toHaveBeenLastCalledWith();
+    await waitFor(() => expect(backend.vaultLock).toHaveBeenCalledTimes(1));
+    expect(blockedLock()).toBeInTheDocument();
+    expect(settings().getByText('Unlocked')).toBeInTheDocument();
+
+    // Discarding needs a second, explicit step.
+    await user.click(
+      within(blockedLock()).getByRole('button', { name: 'Lock and discard unsaved edits' }),
+    );
+    expect(backend.vaultLock).toHaveBeenCalledTimes(1);
+    const confirm = blockedLock();
+    expect(confirm).toHaveTextContent(/edits to ideas\.md and budget-2026\.xlsx are lost/i);
+    await user.click(within(confirm).getByRole('button', { name: 'Discard edits and lock' }));
+    expect(backend.vaultLock).toHaveBeenLastCalledWith(true);
+    await waitFor(() => expect(settings().getByText('Locked')).toBeInTheDocument());
+    expect(settings().queryByRole('alert', { name: "Couldn't lock automatically" })).toBeNull();
+  });
+
+  test('one edited file reads in the singular; Cancel keeps the edits', async () => {
+    const { backend, emit, user } = await renderLauncher({ vault: 'unlocked', lockBlocked: true });
+    await user.type(search(), '/vault{Enter}');
+    emit('vaultLockBlocked', {
+      reason: 'hidden',
+      error: { code: 'UNSYNCED_EDITS', message: 'edits could not be saved', paths: ['ideas.md'] },
+    });
+    const notice = await settings().findByRole('alert', { name: "Couldn't lock automatically" });
+    expect(notice).toHaveTextContent("1 edited file couldn't be saved.");
+    await user.click(
+      within(notice).getByRole('button', { name: 'Lock and discard unsaved edits' }),
+    );
+    await user.click(within(blockedLock()).getByRole('button', { name: 'Cancel' }));
+    expect(backend.vaultLock).not.toHaveBeenCalled();
+    expect(within(blockedLock()).getByRole('button', { name: 'Lock again' })).toBeInTheDocument();
+  });
+
+  test('plain items in storage/vault: waiting while locked', async () => {
+    const { user } = await renderLauncher({ foreignItems: 3 });
+    await user.type(search(), '/vault{Enter}');
+    expect(
+      settings().getByText(
+        '3 plain items in storage/vault are waiting to be encrypted: they are imported when you unlock.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test('plain items still in storage/vault after unlock are not called encrypted', async () => {
+    const { user } = await renderLauncher({ vault: 'unlocked', foreignItems: 1 });
+    await user.type(search(), '/vault{Enter}');
+    expect(
+      settings().getByText(
+        '1 plain item in storage/vault is not encrypted yet: it could not be imported (in use or a link). The next unlock tries again.',
+      ),
+    ).toBeInTheDocument();
+    expect(settings().queryByText(/were encrypted/)).toBeNull();
+  });
+
+  test('no plain-items line when there are none', async () => {
+    const { user } = await renderLauncher({ vault: 'unlocked' });
+    await user.type(search(), '/vault{Enter}');
+    await file('ideas.md');
+    expect(settings().queryByText(/plain item/)).toBeNull();
+  });
+
+  test('the automatic lock shows the configured timers, never for 0', async () => {
+    const standard = await renderLauncher({ vault: 'unlocked' });
+    await standard.user.type(search(), '/vault{Enter}');
+    expect(settings().getByText(/Locks itself after 10 minutes without use/)).toHaveTextContent(
+      'Locks itself after 10 minutes without use, 5 minutes after the launcher is hidden, and when it quits.',
+    );
+    standard.unmount();
+
+    const custom = await renderLauncher({ idleLockMinutes: 0, hideLockMinutes: 1 });
+    await custom.user.type(search(), '/vault{Enter}');
+    expect(settings().getByText(/Locks itself/)).toHaveTextContent(
+      'Locks itself 1 minute after the launcher is hidden and when it quits, never on idle.',
+    );
+  });
+
+  test('the section says wiping is best effort on flash storage', async () => {
+    const { user } = await renderLauncher();
+    await user.type(search(), '/vault{Enter}');
+    const caveat = settings().getByText(/Wiping is best effort/);
+    expect(caveat).toHaveTextContent(/SSDs, USB flash drives and SD cards/);
+    expect(caveat).toHaveTextContent(/may not reach the cells that held the file/);
+  });
+
+  test('a lock that cannot delete decrypted files says so in a toast and the status card', async () => {
+    const { backend, user } = await renderLauncher({ vault: 'unlocked', undeletable: true });
+    await user.type(search(), '/vault{Enter}');
+    await user.click(settings().getByRole('button', { name: 'Lock now' }));
+    expect(backend.vaultLock).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText("Locked, but 2 decrypted files couldn't be deleted yet"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(settings().getByText('Locked')).toBeInTheDocument());
+    const card = settings().getByText(/couldn't be deleted yet: close the program/);
+    expect(card).toHaveTextContent(
+      "Locked, but 2 decrypted files couldn't be deleted yet: close the program using them, then lock the vault again.",
+    );
+    expect(settings().getByText('ideas.md, aurora-01.jpg')).toBeInTheDocument();
+  });
+
+  test('the shell can report leftover files on the status, and clear them', async () => {
+    const { emit, user } = await renderLauncher({ undeletable: true });
+    await user.type(search(), '/vault{Enter}');
+    expect(settings().getByText(/couldn't be deleted yet/)).toHaveTextContent(
+      "Locked, but 1 decrypted file couldn't be deleted yet: close the program using it, then lock the vault again.",
+    );
+    const cleared: VaultStatusDto = {
+      state: 'locked',
+      kdf: null,
+      kdfUpgradePending: false,
+      failedAttempts: 0,
+      retryAfterMs: null,
+      foreignItems: 0,
+      entryCount: null,
+      sessionFiles: 0,
+      undeletable: [],
+    };
+    emit('vault', cleared);
+    expect(settings().queryByText(/couldn't be deleted yet/)).toBeNull();
+  });
+});

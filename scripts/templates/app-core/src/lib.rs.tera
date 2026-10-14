@@ -1,0 +1,60 @@
+//! Core logic for {{ title }}, kept free of Tauri so it is unit-testable.
+//!
+//! Business logic lives here; `programs/desktop/{{ name }}/src-tauri` only wires it to IPC
+//! commands.
+#![forbid(unsafe_code)]
+
+use serde::Serialize;
+
+/// Build metadata returned by the `get_app_info` command; the TypeScript twin is `AppInfo` in
+/// `@genslate/tauri-bridge`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    /// Product name from `tauri.conf.json`.
+    pub name: String,
+    /// App version.
+    pub version: String,
+    /// Tauri runtime version.
+    pub tauri_version: String,
+    /// Operating system the binary was built for, for example `windows`.
+    pub os: String,
+    /// CPU architecture, for example `x86_64`.
+    pub arch: String,
+    /// True for a debug build.
+    pub debug: bool,
+}
+
+impl AppInfo {
+    /// Fills the OS, architecture and build profile from the compile-time environment.
+    pub fn new(
+        name: impl Into<String>,
+        version: impl Into<String>,
+        tauri_version: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            version: version.into(),
+            tauri_version: tauri_version.into(),
+            os: std::env::consts::OS.to_owned(),
+            arch: std::env::consts::ARCH.to_owned(),
+            debug: cfg!(debug_assertions),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_info_serializes_with_camel_case_keys() -> Result<(), serde_json::Error> {
+        let json = serde_json::to_value(AppInfo::new("{{ title }}", "0.1.0", "2.0.0"))?;
+        assert_eq!(json["name"], "{{ title }}");
+        assert_eq!(json["version"], "0.1.0");
+        assert_eq!(json["tauriVersion"], "2.0.0");
+        assert!(json["os"].is_string());
+        assert!(json["debug"].is_boolean());
+        Ok(())
+    }
+}

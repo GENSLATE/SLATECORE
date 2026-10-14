@@ -1,0 +1,56 @@
+name: authorship
+
+# SLATECORE is authored by GENSLATE: no commit, branch, pull request title or body may credit an
+# agent as author (see scripts/lib/attribution.ts). The local hooks run the same checks.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+
+concurrency:
+  group: authorship-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+  LEFTHOOK: "0"
+
+jobs:
+  authorship:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      # The commit range needs history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-env
+        with:
+          rust: "false"
+          cache-scope: authorship
+
+      # The title, body and branch name are attacker-controlled text: they reach the script as
+      # environment variables, never as expression text inside the script.
+      - name: Pull request commits, branch, title and body
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR_TEXT: |
+            ${{ github.event.pull_request.title }}
+            ${{ github.event.pull_request.body }}
+        run: bun run attribution --range "$($env:BASE_SHA)..$($env:HEAD_SHA)" --branch "$($env:HEAD_REF)" --body-env PR_TEXT
+
+      - name: Commits pushed to main
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: bun run attribution --range "$($env:BEFORE_SHA)..$($env:AFTER_SHA)"

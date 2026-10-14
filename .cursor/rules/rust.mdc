@@ -1,0 +1,11 @@
+---
+description: Rust and Tauri standards
+globs:
+  - "**/*.rs"
+  - "**/Cargo.toml"
+alwaysApply: false
+---
+Follow `.claude/rules/rust-standards.md` (read it first).
+@.claude/rules/rust-standards.md
+Hard rules: edition 2024, Windows only, `thiserror`, no `unwrap` or `expect` outside tests, no
+`unsafe`, commands take ids not paths, ask before adding a crate.

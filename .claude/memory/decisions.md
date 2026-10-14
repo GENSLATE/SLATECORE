@@ -1,0 +1,49 @@
+# Decisions
+
+## 2026-10-07 Task 1 (foundation)
+
+- **Pins re-verified, no version changes.** Every npm catalog entry in `research/versions.md` §3b (core and optional) was checked with `bun pm view <pkg> version` and every crate in §3c with `cargo search` plus the crates.io `max_stable_version` (cargo search shows Tauri 3 alphas and notify 9 rcs first; those are pre-releases). All matched the research pins: bun 1.4.2, turbo 2.11.7, Rust 1.99.0, Tauri 2.12.1 / tauri-build 2.7.1, plugins opener 2.7.0, global-shortcut 2.4.0, os 2.4.0, log 2.10.0, single-instance 2.5.2, vite 8.3.3, @vitejs/plugin-react 6.1.2, @babel/core 8.0.7, lefthook 2.2.0, knip 6.40.0, cspell 10.3.6, biome 2.5.15, zeroize 1.9.1.
+- **New pins (not in the research tables):** `fflate` 0.8.3 (npm, Task 13 zip writer), `rfd` 0.17.2 (crate, Task 12 fatal message box). `aead-stream` 0.6.0, `blake2` 0.11.0, `unicode-normalization` 0.1.25, `proptest` 1.11.0 come from `research/vault.md` §1.
+- Cargo requirements are caret (`"2.12.1"`), made exact by the committed `Cargo.lock` and `--locked` (versions.md §3c), not `=` pins.
+- Crates have no `package.json` (spec A1); Rust runs as `//#rust:*` root turbo tasks. `turbo.json` is `research/turborepo.md` §2.2 verbatim (already has `agentGuidance: false`).
+- `genslate-launcher` (src-tauri) drops `genslate-design-tokens` (unused per port-map §4a) and adds `genslate-vault`, `rfd`, `secrecy` (serde), `notify`, `notify-debouncer-full`, `winreg` (Windows target only); no direct `windows`/`windows-sys`.
+- `.env.example` drops `GENSLATE_PORTABLE`: paths now only has Dev and Suite modes.
+- `src-tauri/build.rs` and `src/main.rs` hold `fn main() {}` placeholders so the workspace compiles until Task 12.
+
+## 2026-10-08 Task 15 (agent folders)
+
+- **One rule text, many pointers.** `AGENTS.md` (110 lines at most) is the only always-on rule file. `CLAUDE.md` imports it and `active-context.md` and nothing else. Detail lives once in `.claude/rules/*.md` (Claude-native `paths:`); `.cursor/rules/*.mdc` and `.agents/rules/*.md` are 15-line shims that point at it. No symlinks anywhere (Windows clones turn them into text files).
+- **Owner standing rules are always on.** Plan first (approval before work; beyond the approved launcher plan, post the plan and wait) and screenshots (both themes, `<app>-<polar-night|snow-storm>-<view>.png`, `.claude/project/screenshots/<app>/`, committed with the work, shown in chat). They sit in AGENTS.md, `.claude/rules/workflow.md` (no `paths`, so always loaded) and the always-on Cursor and Antigravity shims. This replaces the SlateSuite "approval before fixing" Antigravity policy and its operating-mode rule.
+- **`bun run check` enforces it.** `scripts/lib/agents-check.ts` (a facade over `agents-check/`) checks a short core of required files plus folder scans, `CLAUDE.md` imports (also mid-line), shim targets, frontmatter each tool drops silently, size budgets (AGENTS.md 110, CLAUDE.md 30, active-context 40, shims 15, Antigravity 12,000 characters, skills 500), hook exec form, the PowerShell pin, the deny list, no `Bash(*)` allow or `bypassPermissions`, leftovers nobody reads, and the screenshot folder (name pattern, one folder per app, both themes). `workflow.md` must never get `paths:`. `.claude/project/` is accepted as is.
+- **Shell pin.** `CLAUDE_CODE_USE_POWERSHELL_TOOL=0` plus mirrored `PowerShell(...)` denies for npm, npx, pnpm, yarn, node, force-push, `--no-verify`, `git commit -n`, `LEFTHOOK=0` and `cargo publish`; `.env`, `.genslate/` and vault data are denied for Read.
+- **Hooks are guard rails.** Exec form (`bun` plus args), fail open. `guard-generated` reads `scripts/lib/generated-paths.ts` and adds vault data, turbo caches and release zips; `format-on-edit` runs Biome or rustfmt; `session-start` prints a snapshot and replaces an agent git identity with the last human author. Cursor and Antigravity hook adapters are not written: their payload formats are unverified and lefthook plus CI are the real net.
+- **Deleted, nothing reads them:** `.claudeignore`, `.agentignore`, `.cursorrules`, `.claude/mcp.json`, `.claude/rules/changes.mdc`, `.cursor/{settings.json,commands,agents,skills,...}`, `.agents/{config.json,hooks,workflows,commands,personas,memory}`. Antigravity workflows are deprecated (retired 2026-11-01), so procedures are skills in `.agents/skills/`, which Cursor also loads.
+- **MCP.** Context7 only, remote HTTP, key from the environment: `Authorization: Bearer ${CONTEXT7_API_KEY}` (Claude), `${env:CONTEXT7_API_KEY}` (Cursor). Antigravity's `mcp_config.json` has no auth header because env expansion there is unverified.
+- **Ignore files.** `.cursorignore` hides only bulk, generated and private files. Screenshots sit in `.cursorindexingignore`, so they stay out of the index but agents can still attach them.
+- **Deferred (P2):** `statusline`, `launch.json` and `tasks.json` (the empty ones were deleted), `/audit`, the `portability-test` and `launcher-command` skills, `.worktreeinclude`.
+- **Unverified, check on first run:** Antigravity rule frontmatter keys and whether it reads `AGENTS.md`; whether Cursor reads `.md` rules and resolves `@file` from the project root; the Context7 header name. Run `/context` in Claude, Settings > Rules in Cursor and the Customizations panel in Antigravity once.
+
+## 2026-10-08 Task 4 (vault)
+
+- **Unlock cost.** STANDARD Argon2id (m=128 MiB, t=3, p=1) unlocks in about 340 to 430 ms in the Linux cloud sandbox (4 vCPU Xeon 2.1 GHz, debug test build with argon2 optimised). Re-measure on the owner's PC; the timing test is `#[ignore]`.
+- **Unreadable slot means no unlock.** If a header or index slot exists but cannot be read (sharing violation, folder in its place), unlock fails with a retryable I/O error before any heal, garbage collection, KDF upgrade or ingest, so nothing is deleted or overwritten. Only missing or damaged slots are healed.
+- **Dropped-in originals are wiped through one exclusive handle** (Windows `share_mode(0)` plus the reparse-point flag) and only after the vault commit; a replaced, grown or linked file is never unlinked, it stays foreign. Residual: Windows has no stable hard-link count in std, so a hard-linked original also zeroes the content seen through its other name (the content is safe in the vault). Documented, accepted for v1.
+- **Windows-only paths are lint-checked, not executed, in the cloud.** The Windows branches of the foreign-ingest tests must be run on the Windows machine before Task 4 is closed.
+- **Deferred:** a dropped-in folder whose files cannot be wiped is imported again as `Name (N)` at each unlock; `upgraded_to` can exceed the work cap; Unix FIFO and mode-000 edge cases.
+
+## 2026-10-12 Whole-branch review rulings
+
+- **Unix code in a Windows-only repo.** `crates/vault/src/session.rs` (about 14 `cfg(unix)` blocks) and one in `crates/paths/src/environment.rs` exist only so the crates can be built and tested in the Linux cloud sandbox. They are never shipped; the product target is `x86_64-pc-windows-msvc`. Keep them minimal; do not add new ones outside tests.
+- **The Windows machine is the only place the shell, the Windows-only vault branches and the no-trace tiers really run.** Cloud work compile-checks them for the Windows target and runs the Tauri-free parts in a scratch crate.
+- **Code-bearing vault files are not opened in place** (`BLOCKED_TYPE`, the list is in `src-tauri/src/open_policy.rs` and mirrored in the UI by a parity test); Export is the way out. Import strips Mark-of-the-Web, which is why.
+- **A blocked automatic vault lock never force-wipes unsaved edits.** The UI warns and offers "Lock and discard unsaved edits" with a confirm step. Revisit if the owner prefers wiping.
+- **GENSLATE licence text is the owner's.** Release builds (`--release` or a tag) refuse to package while `genslate.LICENSE.md` is empty. Third-party font and icon notices ship now; compiled-library notices (Tauri, React, RustCrypto) still need to be added before a tagged release.
+- **WebView2 HKCU keys.** With the PC's Evergreen runtime, WebView2 itself writes keys under `HKCU\Software\Microsoft\EdgeUpdate` and `\EdgeWebView`. The launcher cannot control this; Tier 2 lists them as known limits and the README says so. Whether the bundled fixed-version runtime avoids them is unverified.
+
+## 2026-10-14: no doctests while the shell links the VC runtime statically
+
+`cargo test --workspace` passes the link search paths of every crate's build script to every
+doctest. The launcher shell's `tauri-build` writes an empty `msvcrt.lib` into its OUT_DIR (static VC
+runtime, so the portable exe needs no redistributable), which shadows the real one and makes any
+doctest fail to link on Windows with unresolved CRT symbols. `genslate-launcher-core` therefore has
+`doctest = false`; write unit tests, not doctests, in any crate.

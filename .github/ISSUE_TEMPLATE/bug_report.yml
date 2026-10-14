@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in SLATECORE LAUNCHER does not work as it should.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Thanks for the report. A security problem is not an issue: use the private link in
+        SECURITY.md instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected to see.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the launcher from ...
+        2. Click ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Launcher version
+      description: The version in the zip name, for example 0.1.0.
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: location
+    attributes:
+      label: Where it runs from
+      description: The launcher is portable. Does the drive letter or location matter here?
+      options:
+        - Removable drive
+        - Internal drive
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: webview2
+    attributes:
+      label: WebView2 runtime
+      options:
+        - Installed on the PC
+        - Bundled runtime zip
+        - Not sure
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines
+      description: Relevant lines from other/launcher/logs. Remove anything private.
+      render: text

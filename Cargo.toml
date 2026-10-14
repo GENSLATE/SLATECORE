@@ -1,0 +1,125 @@
+# ──────────────────────────────────────────────────────────────────────
+#  SLATECORE: Cargo workspace (Windows only, x86_64-pc-windows-msvc)
+#  Rust tasks run once for the whole workspace through turbo root tasks
+#  (`//#rust:*` in package.json); crates have no package.json.
+# ──────────────────────────────────────────────────────────────────────
+[workspace]
+resolver = "3"
+members = [
+    "crates/design-tokens",
+    "crates/launcher-core",
+    "crates/paths",
+    "crates/testing",
+    "crates/vault",
+    "programs/desktop/launcher/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+authors = ["GENSLATE"]
+license = "LicenseRef-Proprietary"
+publish = false
+repository = "https://github.com/GENSLATE/SLATECORE"
+
+# Versions are caret requirements; the committed Cargo.lock plus `--locked` makes them exact.
+[workspace.dependencies]
+# ── Internal crates ──────────────────────────────────────────────────
+genslate-design-tokens = { path = "crates/design-tokens" }
+genslate-launcher-core = { path = "crates/launcher-core" }
+genslate-paths = { path = "crates/paths" }
+genslate-testing = { path = "crates/testing" }
+genslate-vault = { path = "crates/vault" }
+
+# ── Tauri (stable 2.x only; JS twins in the bun catalog use the same versions) ──
+tauri = { version = "2.12.1", default-features = false, features = ["wry", "compression", "tray-icon", "image-png"] }
+tauri-build = "2.7.1"
+tauri-plugin-global-shortcut = "2.4.0"
+tauri-plugin-log = "2.10.0"
+tauri-plugin-opener = "2.7.0"
+tauri-plugin-os = "2.4.0"
+tauri-plugin-single-instance = "2.5.2"
+
+# ── Vault (RustCrypto) ───────────────────────────────────────────────
+aead-stream = { version = "0.6.0", default-features = false, features = ["alloc"] }
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+blake2 = { version = "0.11.0", default-features = false }
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc", "zeroize"] }
+getrandom = "0.4.3"
+secrecy = "0.10.3"
+subtle = "2.6.1"
+unicode-normalization = "0.1.25"
+zeroize = "1.9.1"
+
+# ── Core ─────────────────────────────────────────────────────────────
+dunce = "1.0.5"
+ico = "0.5.0"
+log = "0.4.34"
+notify = "8.2.0"
+notify-debouncer-full = "0.7.0"
+nvml-wrapper = "0.13.0"
+pelite = "0.10.0"
+rfd = "0.17.2"
+rust-ini = "0.21.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sysinfo = { version = "0.39.6", default-features = false, features = ["component", "disk", "network", "system"] }
+thiserror = "2.0.21"
+toml = "1.1.6"
+toml_edit = "0.25.15"
+winreg = "0.56.0"
+
+# ── Tests ────────────────────────────────────────────────────────────
+proptest = "1.11.0"
+tempfile = "3.27.0"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+expect_used = "deny"
+unwrap_used = "deny"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+# Pedantic lints that fight idiomatic Tauri / library code:
+missing_errors_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+needless_pass_by_value = "allow" # #[tauri::command] arguments must be owned
+
+[workspace.metadata.cargo-machete]
+ignored = []
+
+# Profiles are only read from the workspace root.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+overflow-checks = true
+
+[profile.dev.package."*"]
+# Optimise dependencies (not our crates) so debug builds of Tauri apps stay snappy.
+opt-level = 1
+
+# The vault KDF and ciphers are about 14 times slower unoptimised (research/vault.md §2.2).
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+[profile.dev.package.chacha20]
+opt-level = 3
+
+[profile.dev.package.poly1305]
+opt-level = 3

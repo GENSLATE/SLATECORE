@@ -1,0 +1,3 @@
+# Keeps committed screenshots out of Cursor's index but not out of @ mentions or attachments,
+# so agents can still attach them (they are reused for READMEs and websites).
+.claude/project/screenshots/

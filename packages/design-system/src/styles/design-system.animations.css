@@ -1,0 +1,108 @@
+/*
+ * Motion layer. Transform and opacity only, timed by the shared `--gs-duration-*` and
+ * `--gs-ease-*` tokens (which collapse under reduced motion), and every `motion-*` utility
+ * switches its animation off when the system asks for reduced motion.
+ *
+ *   motion-fade-up     content entering a view: fades in while rising 4px
+ *   motion-row-in      list rows: a short rise, staggered by `style={{ '--stagger': index }}`
+ *   motion-pop         launch / confirm feedback: a quick scale pop
+ *   motion-pulse-soft  "Coming soon" teasers: a slow, calm ring that breathes around the label
+ */
+
+@theme {
+  --animate-spin: gs-spin 0.8s linear infinite;
+  --animate-indeterminate: gs-indeterminate 1.4s var(--gs-ease-standard) infinite;
+  --animate-pulse-soft: gs-pulse-soft 2.4s var(--gs-ease-standard) infinite;
+
+  @keyframes gs-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes gs-indeterminate {
+    from {
+      transform: translateX(-100%) scaleX(0.4);
+    }
+
+    to {
+      transform: translateX(250%) scaleX(0.4);
+    }
+  }
+
+  @keyframes gs-pulse-soft {
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  /* The ring around a labelled badge: the label itself never dims, so it keeps its contrast. */
+  @keyframes gs-pulse-ring {
+    50% {
+      outline-color: color-mix(in srgb, currentColor 55%, transparent);
+    }
+  }
+
+  @keyframes gs-fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(var(--gs-motion-distance));
+    }
+  }
+
+  @keyframes gs-row-in {
+    from {
+      opacity: 0;
+      transform: translateY(calc(var(--gs-motion-distance) / 2));
+    }
+  }
+
+  @keyframes gs-pop {
+    0% {
+      transform: scale(1);
+    }
+
+    40% {
+      transform: scale(0.94);
+    }
+
+    100% {
+      transform: scale(1);
+    }
+  }
+}
+
+@utility motion-fade-up {
+  animation: gs-fade-up var(--gs-duration-slow) var(--gs-ease-emphasized) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility motion-row-in {
+  animation: gs-row-in var(--gs-duration-base) var(--gs-ease-emphasized) both;
+  animation-delay: calc(min(var(--stagger, 0), var(--gs-stagger-max)) * var(--gs-stagger-step));
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility motion-pop {
+  animation: gs-pop var(--gs-duration-slow) var(--gs-ease-emphasized);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility motion-pulse-soft {
+  outline: 1px solid transparent;
+  outline-offset: 2px;
+  animation: gs-pulse-ring calc(var(--gs-duration-slow) * 7) var(--gs-ease-standard) infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
