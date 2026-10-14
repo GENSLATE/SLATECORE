@@ -39,3 +39,11 @@
 - **A blocked automatic vault lock never force-wipes unsaved edits.** The UI warns and offers "Lock and discard unsaved edits" with a confirm step. Revisit if the owner prefers wiping.
 - **GENSLATE licence text is the owner's.** Release builds (`--release` or a tag) refuse to package while `genslate.LICENSE.md` is empty. Third-party font and icon notices ship now; compiled-library notices (Tauri, React, RustCrypto) still need to be added before a tagged release.
 - **WebView2 HKCU keys.** With the PC's Evergreen runtime, WebView2 itself writes keys under `HKCU\Software\Microsoft\EdgeUpdate` and `\EdgeWebView`. The launcher cannot control this; Tier 2 lists them as known limits and the README says so. Whether the bundled fixed-version runtime avoids them is unverified.
+
+## 2026-10-14: no doctests while the shell links the VC runtime statically
+
+`cargo test --workspace` passes the link search paths of every crate's build script to every
+doctest. The launcher shell's `tauri-build` writes an empty `msvcrt.lib` into its OUT_DIR (static VC
+runtime, so the portable exe needs no redistributable), which shadows the real one and makes any
+doctest fail to link on Windows with unresolved CRT symbols. `genslate-launcher-core` therefore has
+`doctest = false`; write unit tests, not doctests, in any crate.
