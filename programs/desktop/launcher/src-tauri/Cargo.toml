@@ -47,5 +47,5 @@ tempfile.workspace = true
 workspace = true
 
 [package.metadata.cargo-machete]
-# Used for its `serde` feature only: IPC commands deserialise passwords straight into `SecretString`.
+# Used for its `serde` feature only: IPC commands deserialize passwords straight into `SecretString`.
 ignored = ["secrecy"]
